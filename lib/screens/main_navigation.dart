@@ -17,8 +17,8 @@ class _MainNavigationState extends State<MainNavigation> {
   int _currentIndex = 0;
 
   final List<Widget> _pages = [
-    const WeatherMainScreen(),
     const SensorMainScreen(),
+    const WeatherMainScreen(),
     const SettingsScreen(),
     const NotificationScreen(),
     const AccountScreen(),
@@ -52,14 +52,14 @@ class _MainNavigationState extends State<MainNavigation> {
           showUnselectedLabels: true,
           items: const [
             BottomNavigationBarItem(
-              icon: Icon(Icons.cloud_outlined),
-              activeIcon: Icon(Icons.cloud),
-              label: 'Cuaca',
-            ),
-            BottomNavigationBarItem(
               icon: Icon(Icons.sensors_outlined),
               activeIcon: Icon(Icons.sensors),
               label: 'Sensor',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.cloud_outlined),
+              activeIcon: Icon(Icons.cloud),
+              label: 'Cuaca',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.settings_outlined),

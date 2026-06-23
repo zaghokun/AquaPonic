@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:aquaponic/core/constants/app_colors.dart';
 import 'package:aquaponic/models/sensor_model.dart';
 import 'package:aquaponic/widgets/gradient_background.dart';
+import 'package:aquaponic/services/device_service.dart';
 
 class SensorDetailScreen extends StatefulWidget {
   final Kolam kolam;
@@ -18,6 +19,50 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
   String _selectedSuhuPeriod = 'Jam';
   String _selectedPHPeriod = 'Jam';
   final List<String> _periods = ['Menit', 'Jam', 'Hari', 'Minggu', 'Bulan'];
+
+  List<Map<String, dynamic>> _seriesData = [];
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSeries('hour');
+  }
+
+  String _periodToBucket(String period) {
+    switch (period) {
+      case 'Menit': return 'minute';
+      case 'Jam': return 'hour';
+      case 'Hari': return 'day';
+      case 'Minggu': return 'day';
+      case 'Bulan': return 'month';
+      default: return 'hour';
+    }
+  }
+
+  Future<void> _loadSeries(String bucket) async {
+    setState(() { _isLoading = true; _error = null; });
+    try {
+      final now = DateTime.now().toUtc();
+      String? from;
+      switch (bucket) {
+        case 'minute': from = now.subtract(const Duration(hours: 1)).toIso8601String(); break;
+        case 'hour': from = now.subtract(const Duration(hours: 24)).toIso8601String(); break;
+        case 'day': from = now.subtract(const Duration(days: 7)).toIso8601String(); break;
+        case 'month': from = now.subtract(const Duration(days: 365)).toIso8601String(); break;
+      }
+      final data = await DeviceService.getDeviceSeries(
+        widget.kolam.id,
+        bucket: bucket,
+        from: from,
+        to: now.toIso8601String(),
+      );
+      setState(() { _seriesData = data; _isLoading = false; });
+    } catch (e) {
+      setState(() { _error = 'Gagal memuat data grafik'; _isLoading = false; });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -68,9 +113,12 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
               icon: Icons.thermostat,
               iconColor: Colors.redAccent,
               status: k.sensorData.suhuStatus,
-              history: k.sensorData.suhuHistory,
+              dataKey: 'temp_avg',
               selectedPeriod: _selectedSuhuPeriod,
-              onPeriodChanged: (p) => setState(() => _selectedSuhuPeriod = p),
+              onPeriodChanged: (p) {
+                setState(() => _selectedSuhuPeriod = p);
+                _loadSeries(_periodToBucket(p));
+              },
               lineColor: Colors.purpleAccent,
               fillColor: Colors.purpleAccent.withValues(alpha: 0.3),
             ),
@@ -81,9 +129,12 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
               icon: Icons.science,
               iconColor: Colors.blueAccent,
               status: k.sensorData.pHStatus,
-              history: k.sensorData.pHHistory,
+              dataKey: 'ph_avg',
               selectedPeriod: _selectedPHPeriod,
-              onPeriodChanged: (p) => setState(() => _selectedPHPeriod = p),
+              onPeriodChanged: (p) {
+                setState(() => _selectedPHPeriod = p);
+                _loadSeries(_periodToBucket(p));
+              },
               lineColor: Colors.blue,
               fillColor: Colors.blue.withValues(alpha: 0.3),
             ),
@@ -126,7 +177,7 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
     required IconData icon,
     required Color iconColor,
     required SensorStatus status,
-    required List<SensorReading> history,
+    required String dataKey,
     required String selectedPeriod,
     required ValueChanged<String> onPeriodChanged,
     required Color lineColor,
@@ -163,33 +214,13 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
           const SizedBox(height: 24),
           SizedBox(
             height: 200,
-            child: LineChart(
-              LineChartData(
-                gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.shade200, strokeWidth: 1)),
-                titlesData: FlTitlesData(
-                  rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                  topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                  bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 30, getTitlesWidget: (v, meta) => Padding(padding: const EdgeInsets.only(top: 8.0), child: Text('${v.toInt()}:00', style: const TextStyle(fontSize: 10, color: Colors.grey))))),
-                  leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40, getTitlesWidget: (v, meta) => Text(v.toStringAsFixed(1), style: const TextStyle(fontSize: 10, color: Colors.grey)))),
-                ),
-                borderData: FlBorderData(show: false),
-                minX: 0,
-                maxX: history.length.toDouble() - 1,
-                minY: history.map((e) => e.value).reduce((a, b) => a < b ? a : b) - 2,
-                maxY: history.map((e) => e.value).reduce((a, b) => a > b ? a : b) + 2,
-                lineBarsData: [
-                  LineChartBarData(
-                    spots: history.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.value)).toList(),
-                    isCurved: true,
-                    color: lineColor,
-                    barWidth: 3,
-                    isStrokeCapRound: true,
-                    dotData: FlDotData(show: false),
-                    belowBarData: BarAreaData(show: true, color: fillColor),
-                  ),
-                ],
-              ),
-            ),
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                    ? Center(child: Text(_error!, style: GoogleFonts.poppins(color: AppColors.textSecondary)))
+                    : _seriesData.isEmpty
+                        ? Center(child: Text('Belum ada data', style: GoogleFonts.poppins(color: AppColors.textSecondary)))
+                        : _buildLineChart(dataKey, lineColor, fillColor),
           ),
           const SizedBox(height: 24),
           SingleChildScrollView(
@@ -197,6 +228,66 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
             child: Row(
               children: _periods.map((p) => _buildPeriodChip(p, p == selectedPeriod, () => onPeriodChanged(p))).toList(),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLineChart(String dataKey, Color lineColor, Color fillColor) {
+    final spots = <FlSpot>[];
+    for (int i = 0; i < _seriesData.length; i++) {
+      final val = (_seriesData[i][dataKey] as num?)?.toDouble();
+      if (val != null) {
+        spots.add(FlSpot(i.toDouble(), val));
+      }
+    }
+
+    if (spots.isEmpty) {
+      return Center(child: Text('Belum ada data', style: GoogleFonts.poppins(color: AppColors.textSecondary)));
+    }
+
+    final minY = spots.map((s) => s.y).reduce((a, b) => a < b ? a : b) - 2;
+    final maxY = spots.map((s) => s.y).reduce((a, b) => a > b ? a : b) + 2;
+
+    return LineChart(
+      LineChartData(
+        gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.shade200, strokeWidth: 1)),
+        titlesData: FlTitlesData(
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          bottomTitles: AxisTitles(sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 30,
+            interval: (spots.length / 6).ceilToDouble().clamp(1, double.infinity),
+            getTitlesWidget: (v, meta) {
+              final idx = v.toInt();
+              if (idx < 0 || idx >= _seriesData.length) return const SizedBox.shrink();
+              final t = _seriesData[idx]['t'] ?? '';
+              // Show only hour part from ISO timestamp
+              final timePart = t is String && t.length >= 16 ? t.substring(11, 16) : '$idx';
+              return Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: Text(timePart, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+              );
+            },
+          )),
+          leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40, getTitlesWidget: (v, meta) => Text(v.toStringAsFixed(1), style: const TextStyle(fontSize: 10, color: Colors.grey)))),
+        ),
+        borderData: FlBorderData(show: false),
+        minX: 0,
+        maxX: spots.length.toDouble() - 1,
+        minY: minY,
+        maxY: maxY,
+        lineBarsData: [
+          LineChartBarData(
+            spots: spots,
+            isCurved: true,
+            color: lineColor,
+            barWidth: 3,
+            isStrokeCapRound: true,
+            dotData: const FlDotData(show: false),
+            belowBarData: BarAreaData(show: true, color: fillColor),
           ),
         ],
       ),

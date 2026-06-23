@@ -33,7 +33,7 @@ class AccountScreen extends StatelessWidget {
                           color: AppColors.textSecondary,
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 32),
                       Container(
                         decoration: BoxDecoration(
                           color: AppColors.white,
