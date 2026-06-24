@@ -21,8 +21,8 @@
 // =====================================================
 //  KONFIGURASI — ubah per unit
 // =====================================================
-const char* WIFI_SSID     = "AXL";
-const char* WIFI_PASSWORD = "GunNRoses";
+const char* WIFI_SSID     = "-";
+const char* WIFI_PASSWORD = "-";
 
 const char* WORKER_URL     = "https://sensor-monitor.aquaponic.workers.dev/api/sensor";
 const char* DEVICE_API_KEY = "PeTImlPYZj4exKFr7X7YQv9H3XdvSDOT68Hryi0+tos=";   // kunci bersama (SAMA di semua unit, cocok secret Worker)
