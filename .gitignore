@@ -46,3 +46,12 @@ app.*.map.json
 # Custom / Project Specific
 AquaPonic UI/
 AquaPonic UI
+
+.env
+.env.*
+!.env.example
+
+.wrangler/
+**/.wrangler/
+
+**/.claude/settings.local.json
