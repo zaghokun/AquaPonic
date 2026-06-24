@@ -1,14 +1,60 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:aquaponic/core/constants/app_colors.dart';
-import 'package:aquaponic/data/dummy_data.dart';
 import 'package:aquaponic/routes/app_routes.dart';
+import 'package:aquaponic/services/auth_service.dart';
 import 'package:aquaponic/widgets/profile_header.dart';
 import 'package:aquaponic/widgets/setting_tile.dart';
 import 'package:aquaponic/widgets/gradient_background.dart';
+import 'package:aquaponic/models/user_model.dart';
 
-class AccountScreen extends StatelessWidget {
+class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
+
+  @override
+  State<AccountScreen> createState() => _AccountScreenState();
+}
+
+class _AccountScreenState extends State<AccountScreen> {
+  User? _user;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUser();
+  }
+
+  Future<void> _loadUser() async {
+    try {
+      final data = await AuthService.me();
+      if (data != null && mounted) {
+        final u = data['user'] ?? {};
+        final meta = u['user_metadata'] ?? {};
+        final fullName = meta['full_name'] ?? 'Pengguna';
+        final parts = fullName.split(' ');
+        final firstName = parts.isNotEmpty ? parts[0] : '';
+        final lastName = parts.length > 1 ? parts.sublist(1).join(' ') : '';
+        
+        setState(() {
+          _user = User(
+            id: u['id'] ?? '',
+            firstName: firstName,
+            lastName: lastName,
+            email: u['email'] ?? '',
+            username: meta['username'] ?? '',
+            phone: meta['phone'] ?? '',
+            birthDate: DateTime.now(),
+          );
+          _isLoading = false;
+        });
+      } else {
+        if (mounted) setState(() => _isLoading = false);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -16,7 +62,14 @@ class AccountScreen extends StatelessWidget {
       child: SafeArea(
         child: Column(
           children: [
-            ProfileHeader(user: DummyData.user),
+            _isLoading
+                ? const Padding(
+                    padding: EdgeInsets.all(40.0),
+                    child: CircularProgressIndicator(color: AppColors.white),
+                  )
+                : _user != null
+                    ? ProfileHeader(user: _user!)
+                    : const SizedBox(height: 120),
             Expanded(
               child: Container(
                 color: AppColors.cardBackground,
@@ -44,7 +97,12 @@ class AccountScreen extends StatelessWidget {
                             SettingTile(
                               title: 'Edit Profil',
                               icon: Icons.person_outline,
-                              onTap: () => Navigator.pushNamed(context, AppRoutes.editProfile),
+                              onTap: () async {
+                                final res = await Navigator.pushNamed(context, AppRoutes.editProfile);
+                                if (res == true) {
+                                  _loadUser(); // refresh data
+                                }
+                              },
                             ),
                             SettingTile(
                               title: 'Ganti Kata Sandi',
@@ -115,9 +173,12 @@ class AccountScreen extends StatelessWidget {
             ),
           ),
           ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.pushReplacementNamed(context, AppRoutes.login);
+            onPressed: () async {
+              await AuthService.logout();
+              if (context.mounted) {
+                Navigator.pop(context);
+                Navigator.pushReplacementNamed(context, AppRoutes.login);
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.statusDanger,

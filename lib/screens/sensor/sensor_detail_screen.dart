@@ -1,6 +1,10 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:aquaponic/core/constants/app_colors.dart';
 import 'package:aquaponic/models/sensor_model.dart';
 import 'package:aquaponic/widgets/gradient_background.dart';
@@ -64,6 +68,41 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
     }
   }
 
+  Future<void> _exportCsv() async {
+    if (_seriesData.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tidak ada data untuk diexport')),
+      );
+      return;
+    }
+    try {
+      final header = "Waktu,Suhu (C),pH\n";
+      final rows = _seriesData.map((d) {
+        final t = d['t'] ?? '';
+        final temp = d['temp_avg'] ?? '';
+        final ph = d['ph_avg'] ?? '';
+        return "$t,$temp,$ph";
+      }).join("\n");
+      final csvData = header + rows;
+
+      final directory = await getTemporaryDirectory();
+      final dateStr = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+      final file = File('${directory.path}/sensor_${widget.kolam.id}_$dateStr.csv');
+      await file.writeAsString(csvData);
+
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: 'Export Data Sensor ${widget.kolam.name}',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal export data: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final k = widget.kolam;
@@ -81,7 +120,10 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
           style: GoogleFonts.poppins(color: AppColors.white, fontWeight: FontWeight.w500),
         ),
         actions: [
-          IconButton(icon: const Icon(Icons.file_download_outlined, color: AppColors.white), onPressed: () {}),
+          IconButton(
+            icon: const Icon(Icons.file_download_outlined, color: AppColors.white),
+            onPressed: _exportCsv,
+          ),
           IconButton(icon: const Icon(Icons.more_vert, color: AppColors.white), onPressed: () {}),
         ],
       ),
@@ -220,7 +262,7 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
                     ? Center(child: Text(_error!, style: GoogleFonts.poppins(color: AppColors.textSecondary)))
                     : _seriesData.isEmpty
                         ? Center(child: Text('Belum ada data', style: GoogleFonts.poppins(color: AppColors.textSecondary)))
-                        : _buildLineChart(dataKey, lineColor, fillColor),
+                        : _buildLineChart(dataKey, lineColor, fillColor, selectedPeriod),
           ),
           const SizedBox(height: 24),
           SingleChildScrollView(
@@ -234,7 +276,7 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
     );
   }
 
-  Widget _buildLineChart(String dataKey, Color lineColor, Color fillColor) {
+  Widget _buildLineChart(String dataKey, Color lineColor, Color fillColor, String selectedPeriod) {
     final spots = <FlSpot>[];
     for (int i = 0; i < _seriesData.length; i++) {
       final val = (_seriesData[i][dataKey] as num?)?.toDouble();
@@ -264,8 +306,16 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
               final idx = v.toInt();
               if (idx < 0 || idx >= _seriesData.length) return const SizedBox.shrink();
               final t = _seriesData[idx]['t'] ?? '';
-              // Show only hour part from ISO timestamp
-              final timePart = t is String && t.length >= 16 ? t.substring(11, 16) : '$idx';
+              String timePart = '$idx';
+              if (t is String && t.isNotEmpty) {
+                try {
+                  final dt = DateTime.parse(t).toLocal();
+                  final DateFormat formatter = selectedPeriod == 'Hari' || selectedPeriod == 'Bulan' || selectedPeriod == 'Minggu' ? DateFormat('dd MMM') : DateFormat('HH:mm');
+                  timePart = formatter.format(dt);
+                } catch (_) {
+                  timePart = t.length >= 16 ? t.substring(11, 16) : t;
+                }
+              }
               return Padding(
                 padding: const EdgeInsets.only(top: 8.0),
                 child: Text(timePart, style: const TextStyle(fontSize: 10, color: Colors.grey)),

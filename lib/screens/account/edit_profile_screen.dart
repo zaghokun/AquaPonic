@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:aquaponic/core/constants/app_colors.dart';
+import 'package:aquaponic/core/network/api_client.dart';
+import 'package:aquaponic/services/auth_service.dart';
 import 'package:aquaponic/widgets/gradient_background.dart';
 import 'package:aquaponic/widgets/section_header.dart';
 import 'package:aquaponic/widgets/app_button.dart';
 import 'package:aquaponic/widgets/app_text_field.dart';
-import 'package:aquaponic/data/dummy_data.dart';
-import 'package:intl/intl.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -16,30 +16,58 @@ class EditProfileScreen extends StatefulWidget {
 }
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
-  final user = DummyData.user;
-  late TextEditingController _firstNameController;
-  late TextEditingController _lastNameController;
-  late TextEditingController _usernameController;
-  late TextEditingController _phoneController;
-  late DateTime _selectedDate;
+  final _fullNameCtrl = TextEditingController();
+  final _phoneCtrl = TextEditingController();
+  bool _loading = false;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    _firstNameController = TextEditingController(text: user.firstName);
-    _lastNameController = TextEditingController(text: user.lastName);
-    _usernameController = TextEditingController(text: user.username);
-    _phoneController = TextEditingController(text: user.phone.replaceAll('+62 ', ''));
-    _selectedDate = user.birthDate;
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    try {
+      final data = await AuthService.me();
+      if (data != null && mounted) {
+        final meta = data['user']?['user_metadata'] ?? {};
+        setState(() {
+          _fullNameCtrl.text = meta['full_name'] ?? '';
+          _phoneCtrl.text = meta['phone'] ?? '';
+        });
+      }
+    } catch (_) {}
   }
 
   @override
   void dispose() {
-    _firstNameController.dispose();
-    _lastNameController.dispose();
-    _usernameController.dispose();
-    _phoneController.dispose();
+    _fullNameCtrl.dispose();
+    _phoneCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() { _loading = true; _error = null; });
+
+    try {
+      await AuthService.updateProfile(
+        fullName: _fullNameCtrl.text,
+        phone: _phoneCtrl.text,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profil berhasil disimpan!'), backgroundColor: AppColors.statusGood),
+        );
+        Navigator.pop(context, true);
+      }
+    } on ApiException catch (e) {
+      setState(() => _error = e.message);
+    } catch (_) {
+      setState(() => _error = 'Terjadi kesalahan jaringan.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
@@ -94,49 +122,30 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       ],
                     ),
                     const SizedBox(height: 32),
-                    Row(
-                      children: [
-                        Expanded(child: AppTextField(label: 'Nama Depan', controller: _firstNameController)),
-                        const SizedBox(width: 16),
-                        Expanded(child: AppTextField(label: 'Nama Belakang', controller: _lastNameController)),
-                      ],
+                    AppTextField(
+                      label: 'Nama Lengkap',
+                      controller: _fullNameCtrl,
                     ),
-                    AppTextField(label: 'Username', controller: _usernameController),
                     AppTextField(
                       label: 'Nomor Telepon',
-                      controller: _phoneController,
-                      prefix: Text('+62', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+                      controller: _phoneCtrl,
+                      prefix: Text('+62 ', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
                     ),
-                    AppTextField(
-                      label: 'Tanggal Lahir',
-                      hint: DateFormat('dd/MM/yyyy').format(_selectedDate),
-                      readOnly: true,
-                      onTap: () async {
-                        final picked = await showDatePicker(
-                          context: context,
-                          initialDate: _selectedDate,
-                          firstDate: DateTime(1900),
-                          lastDate: DateTime.now(),
-                        );
-                        if (picked != null) {
-                          setState(() => _selectedDate = picked);
-                        }
-                      },
-                    ),
+                    if (_error != null) ...[
+                      const SizedBox(height: 16),
+                      Text(_error!, style: GoogleFonts.poppins(color: AppColors.statusDanger, fontSize: 13)),
+                    ],
                     const SizedBox(height: 32),
                     Align(
                       alignment: Alignment.centerRight,
                       child: SizedBox(
                         width: 150,
-                        child: AppButton(
-                          text: 'Simpan',
-                          onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Profil berhasil disimpan!')),
-                            );
-                            Navigator.pop(context);
-                          },
-                        ),
+                        child: _loading
+                            ? const Center(child: CircularProgressIndicator())
+                            : AppButton(
+                                text: 'Simpan',
+                                onPressed: _save,
+                              ),
                       ),
                     ),
                   ],

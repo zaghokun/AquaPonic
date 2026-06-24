@@ -46,9 +46,40 @@ class AuthService {
     await ApiClient.clearTokens();
   }
 
-  /// Check if a token exists locally (quick check without network).
-  static Future<bool> hasToken() async {
-    final token = await ApiClient.getAccessToken();
-    return token != null && token.isNotEmpty;
+  /// Register a new account.
+  /// Endpoint: POST /api/auth/register
+  static Future<Map<String, dynamic>> register(
+      String email, String password) async {
+    final data = await ApiClient.post(
+      '/auth/register',
+      auth: false,
+      body: {'email': email, 'password': password},
+    );
+    return Map<String, dynamic>.from(data);
+  }
+
+  /// Update current user's profile (name, phone, email).
+  /// Endpoint: PATCH /api/users/me
+  static Future<Map<String, dynamic>> updateProfile({
+    String? fullName,
+    String? phone,
+    String? email,
+  }) async {
+    final body = <String, String>{};
+    if (fullName != null) body['full_name'] = fullName;
+    if (phone != null) body['phone'] = phone;
+    if (email != null) body['email'] = email;
+
+    final data = await ApiClient.patch('/users/me', body: body);
+    return Map<String, dynamic>.from(data);
+  }
+
+  /// Change current user's password.
+  /// Endpoint: PUT /api/users/me/password
+  static Future<void> changePassword(String newPassword) async {
+    await ApiClient.put(
+      '/users/me/password',
+      body: {'password': newPassword},
+    );
   }
 }

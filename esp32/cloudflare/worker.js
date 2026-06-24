@@ -40,7 +40,6 @@
 const RETENTION_DAYS = 2;          // simpan di Supabase 2 hari (sisanya hanya di CSV)
 const WIB_OFFSET_MS  = 7 * 3600e3; // UTC+7
 const MARKER_KEY     = "_state/last_flush.txt";
-const DEVICES = ["esp-01", "esp-02", "esp-03", "esp-04"];
 const STALE_MS = 30000;
 const WEATHER_PLACE = {
   lat: -7.0903664216,
@@ -64,11 +63,21 @@ export default {
       if (request.method === "POST" && url.pathname === "/api/sensor") return postSensor(request, env);
 
       if (request.method === "POST" && url.pathname === "/api/auth/login") return login(request, env);
+      if (request.method === "POST" && url.pathname === "/api/auth/register") return register(request, env);
       if (request.method === "POST" && url.pathname === "/api/auth/refresh") return refreshToken(request, env);
       if (request.method === "POST" && url.pathname === "/api/auth/logout") return logout(request, env);
       if (request.method === "GET" && url.pathname === "/api/auth/me") {
         const auth = await requireAuth(request, env);
         return json({ user: publicUser(auth.user), role: auth.role });
+      }
+
+      if (request.method === "PATCH" && url.pathname === "/api/users/me") {
+        const auth = await requireAuth(request, env);
+        return updateMyProfile(request, env, auth);
+      }
+      if (request.method === "PUT" && url.pathname === "/api/users/me/password") {
+        const auth = await requireAuth(request, env);
+        return changeMyPassword(request, env, auth);
       }
 
       if (request.method === "GET" && url.pathname === "/api/sensor") {
@@ -116,8 +125,24 @@ export default {
 
       const thresholdDevice = matchPath(url.pathname, /^\/api\/thresholds\/([^/]+)$/);
       if (request.method === "PUT" && thresholdDevice) {
-        const auth = await requireAuth(request, env, "admin");
+        // Dibuka untuk semua role (user dan admin)
+        const auth = await requireAuth(request, env);
         return updateThreshold(request, env, thresholdDevice[1], auth);
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/notifications") {
+        await requireAuth(request, env);
+        return getNotifications(url, env);
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/devices") {
+        const auth = await requireAuth(request, env);
+        return addDevice(request, env, auth);
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/devices/export") {
+        const auth = await requireAuth(request, env);
+        return exportDeviceReadings(request, url, env, auth);
       }
 
       if (request.method === "GET" && url.pathname === "/api/weather/current") {
@@ -207,6 +232,13 @@ export default {
 };
 
 // ─── AUTH ────────────────────────────────────────────────────────────
+// Endpoint daftar di header (referensi)
+// POST /api/auth/register         -> daftar akun mandiri
+// PATCH /api/users/me             -> edit profil sendiri
+// PUT /api/users/me/password      -> ganti password sendiri
+// GET  /api/notifications         -> riwayat notifikasi peringatan
+// POST /api/devices               -> tambah sensor/kolam baru
+// GET  /api/devices/export        -> export data sensor ke CSV
 async function login(request, env) {
   requireEnv(env, ["SUPABASE_URL", "SUPABASE_ANON_KEY"]);
 
@@ -259,6 +291,118 @@ async function login(request, env) {
     user: publicUser(data.user),
     role,
   });
+}
+
+async function register(request, env) {
+  requireEnv(env, ["SUPABASE_URL", "SUPABASE_ANON_KEY"]);
+
+  let body;
+  try { body = await request.json(); }
+  catch { return json({ error: "Invalid JSON" }, 400); }
+
+  const email = String(body.email || "").trim();
+  const password = String(body.password || "");
+  if (!email) return json({ error: "Email wajib diisi" }, 400);
+  if (!password || password.length < 6) return json({ error: "Password minimal 6 karakter" }, 400);
+
+  const res = await fetch(`${env.SUPABASE_URL}/auth/v1/signup`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: env.SUPABASE_ANON_KEY,
+    },
+    body: JSON.stringify({ email, password }),
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    return json({ error: "Registrasi gagal", detail: data.error_description || data.msg || data.error }, 400);
+  }
+
+  await logActivity(env, {
+    request,
+    actor_type: "user",
+    actor_email: email,
+    action: "auth.register",
+    target_type: "auth",
+    source: "mobile_app",
+    severity: "info",
+  });
+
+  return json({ success: true, message: "Registrasi berhasil. Silakan cek email untuk konfirmasi." }, 201);
+}
+
+async function updateMyProfile(request, env, auth) {
+  requireEnv(env, ["SUPABASE_URL", "SUPABASE_SERVICE_KEY"]);
+
+  let body;
+  try { body = await request.json(); }
+  catch { return json({ error: "Invalid JSON" }, 400); }
+
+  const payload = {};
+  const meta = {};
+  if (body.email !== undefined) payload.email = String(body.email).trim();
+  if (body.full_name !== undefined) meta.full_name = String(body.full_name).trim();
+  if (body.phone !== undefined) meta.phone = String(body.phone).trim();
+  if (Object.keys(meta).length) payload.user_metadata = meta;
+
+  if (!Object.keys(payload).length) return json({ error: "Tidak ada data yang diubah" }, 400);
+
+  const res = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(auth.user.id)}`, {
+    method: "PUT",
+    headers: {
+      ...adminAuthHeaders(env),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await checkedJson(res, "Gagal mengubah profil");
+  await logActivity(env, {
+    request,
+    actor: auth,
+    action: "user.profile_update",
+    target_type: "user",
+    target_id: auth.user.id,
+    source: "mobile_app",
+    severity: "info",
+    metadata: { changed_fields: Object.keys(payload) },
+  });
+
+  return json({ success: true, user: publicUser(data) });
+}
+
+async function changeMyPassword(request, env, auth) {
+  requireEnv(env, ["SUPABASE_URL", "SUPABASE_SERVICE_KEY"]);
+
+  let body;
+  try { body = await request.json(); }
+  catch { return json({ error: "Invalid JSON" }, 400); }
+
+  const password = String(body.password || "");
+  if (!password || password.length < 6) return json({ error: "Password baru minimal 6 karakter" }, 400);
+
+  const res = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(auth.user.id)}`, {
+    method: "PUT",
+    headers: {
+      ...adminAuthHeaders(env),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ password }),
+  });
+
+  await checkedJson(res, "Gagal mengganti password");
+  await logActivity(env, {
+    request,
+    actor: auth,
+    action: "user.password_change",
+    target_type: "user",
+    target_id: auth.user.id,
+    source: "mobile_app",
+    severity: "info",
+  });
+
+  return json({ success: true, message: "Password berhasil diubah" });
 }
 
 async function refreshToken(request, env) {
@@ -575,12 +719,14 @@ function getUserRole(user) {
   return user?.app_metadata?.role === "admin" ? "admin" : "user";
 }
 
-function publicUser(user) {
-  if (!user) return null;
+function publicUser(u) {
+  if (!u) return null;
   return {
-    id: user.id,
-    email: user.email,
-    role: getUserRole(user),
+    id: u.id,
+    email: u.email,
+    created_at: u.created_at,
+    updated_at: u.updated_at,
+    user_metadata: u.user_metadata || u.raw_user_meta_data || {},
   };
 }
 
@@ -665,31 +811,83 @@ async function postSensor(request, env) {
   return json({ success: true, inserted: rows.length }, 201);
 }
 
-// ─── GET /api/devices ────────────────────────────────────────────────
+// ─── GET /api/devices (dinamis dari tabel thresholds) ────────────────
 async function getDevices(env) {
-  // Fetch thresholds and latest reading for each device in parallel
-  const fetches = [
-    fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?select=*`, { headers: readHeaders(env) }),
-    ...DEVICES.map(device => 
-      fetch(`${env.SUPABASE_URL}/rest/v1/readings?select=*&device=eq.${encodeURIComponent(device)}&order=created_at.desc&limit=1`, { headers: readHeaders(env) })
-    )
-  ];
-
-  const results = await Promise.all(fetches);
-  
-  const thresholdRows = await checkedJson(results[0], "Gagal membaca threshold");
+  // Ambil daftar device dari tabel thresholds (tidak hardcode)
+  const threshRes = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?select=*&order=device.asc`, { headers: readHeaders(env) });
+  const thresholdRows = await checkedJson(threshRes, "Gagal membaca threshold");
+  const devices = thresholdRows.map(r => r.device);
   const thresholds = Object.fromEntries(thresholdRows.map((r) => [r.device, r]));
-  
+
+  if (!devices.length) return json([]);
+
+  // Ambil data terbaru setiap device secara paralel
+  const readingFetches = devices.map(device =>
+    fetch(`${env.SUPABASE_URL}/rest/v1/readings?select=*&device=eq.${encodeURIComponent(device)}&order=created_at.desc&limit=1`, { headers: readHeaders(env) })
+  );
+  const readingResults = await Promise.all(readingFetches);
+
   const latest = {};
-  for (let i = 0; i < DEVICES.length; i++) {
-    const device = DEVICES[i];
-    const readingRows = await checkedJson(results[i + 1], `Gagal membaca data perangkat ${device}`);
+  for (let i = 0; i < devices.length; i++) {
+    const device = devices[i];
+    const readingRows = await checkedJson(readingResults[i], `Gagal membaca data perangkat ${device}`);
     if (readingRows.length > 0) {
       latest[device] = readingRows[0];
     }
   }
 
-  return json(DEVICES.map((device) => deviceSummary(device, latest[device], thresholds[device])));
+  return json(devices.map((device) => deviceSummary(device, latest[device], thresholds[device])));
+}
+
+// ─── POST /api/devices (tambah kolam/sensor baru) ────────────────────
+async function addDevice(request, env, auth) {
+  requireEnv(env, ["SUPABASE_URL", "SUPABASE_SERVICE_KEY"]);
+
+  let body;
+  try { body = await request.json(); }
+  catch { return json({ error: "Invalid JSON" }, 400); }
+
+  const device = String(body.device || "").trim().toLowerCase();
+  if (!device || !/^esp-\d+$/.test(device)) return json({ error: "Format device tidak valid. Gunakan format: esp-01, esp-05, dll." }, 400);
+
+  // Cek apakah device sudah terdaftar
+  const checkRes = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?device=eq.${encodeURIComponent(device)}&select=device`, { headers: readHeaders(env) });
+  const existing = await checkedJson(checkRes, "Gagal memeriksa device");
+  if (existing.length > 0) return json({ error: `Device '${device}' sudah terdaftar` }, 409);
+
+  const label = body.label || deviceLabel(device);
+  const defaultThreshold = {
+    device,
+    label,
+    ph_min: body.ph_min ?? 6.5,
+    ph_max: body.ph_max ?? 8.5,
+    temp_min: body.temp_min ?? 25.0,
+    temp_max: body.temp_max ?? 32.0,
+  };
+
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds`, {
+    method: "POST",
+    headers: {
+      ...readHeaders(env),
+      "Content-Type": "application/json",
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify(defaultThreshold),
+  });
+
+  const created = await checkedJson(res, "Gagal menambahkan device");
+  await logActivity(env, {
+    request,
+    actor: auth,
+    action: "user.device_add",
+    target_type: "device",
+    target_id: device,
+    source: "mobile_app",
+    severity: "info",
+    metadata: { device, label },
+  });
+
+  return json(created[0] || defaultThreshold, 201);
 }
 
 async function getDeviceLive(env, device) {
@@ -753,7 +951,7 @@ async function getThresholds(env) {
 }
 
 async function updateThreshold(request, env, device, auth) {
-  assertDevice(device);
+  await assertDevice(device, env);
 
   let body;
   try { body = await request.json(); }
@@ -787,14 +985,83 @@ async function updateThreshold(request, env, device, auth) {
   await logActivity(env, {
     request,
     actor: auth,
-    action: "admin.threshold_update",
+    action: "user.threshold_update",
     target_type: "threshold",
     target_id: device,
-    source: "web_dashboard",
+    source: clientSource(request) || "mobile_app",
     severity: "info",
     metadata: updated,
   });
   return json(updated);
+}
+
+// ─── GET /api/notifications ──────────────────────────────────────────
+async function getNotifications(url, env) {
+  requireEnv(env, ["SUPABASE_URL", "SUPABASE_SERVICE_KEY"]);
+
+  const limit = clampInt(url.searchParams.get("limit"), 1, 100, 50);
+  const device = url.searchParams.get("device");
+
+  let q = `select=*&order=created_at.desc&limit=${limit}`;
+  // Ambil hanya log dengan severity warning atau danger (notifikasi peringatan)
+  q += `&severity=in.(warning,danger,error)`;
+  if (device) q += `&target_id=eq.${encodeURIComponent(device)}`;
+
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/activity_logs?${q}`, { headers: readHeaders(env) });
+  const rows = await checkedJson(res, "Gagal membaca notifikasi");
+  return json(rows);
+}
+
+// ─── GET /api/devices/export (export CSV untuk user) ─────────────────
+async function exportDeviceReadings(request, url, env, auth) {
+  requireEnv(env, ["SUPABASE_URL", "SUPABASE_SERVICE_KEY"]);
+
+  const device = url.searchParams.get("device");
+  const from = url.searchParams.get("from");
+  const to = url.searchParams.get("to");
+  if (!device || !from || !to) return json({ error: "Parameter device, from, dan to wajib diisi" }, 400);
+  await assertDevice(device, env);
+
+  const fromTime = Date.parse(from);
+  const toTime = Date.parse(to);
+  if (!Number.isFinite(fromTime) || !Number.isFinite(toTime)) return json({ error: "Format tanggal tidak valid" }, 400);
+  if (fromTime > toTime) return json({ error: "Tanggal awal tidak boleh melewati tanggal akhir" }, 400);
+
+  // Batasi export maksimal 7 hari
+  const maxRangeMs = 7 * 24 * 3600e3;
+  if (toTime - fromTime > maxRangeMs) return json({ error: "Export dibatasi maksimal 7 hari" }, 400);
+
+  const q = `select=created_at,device,temperature,ph` +
+    `&device=eq.${encodeURIComponent(device)}` +
+    `&created_at=gte.${encodeURIComponent(from)}` +
+    `&created_at=lte.${encodeURIComponent(to)}` +
+    `&order=created_at.asc&limit=10000`;
+
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/readings?${q}`, { headers: readHeaders(env) });
+  const rows = await checkedJson(res, "Gagal export data");
+
+  const csv = toCsv(rows);
+  await logActivity(env, {
+    request,
+    actor: auth,
+    action: "user.export_readings",
+    target_type: "readings",
+    target_id: device,
+    source: "mobile_app",
+    severity: "info",
+    metadata: { device, from, to, rows: rows.length },
+  });
+
+  const label = deviceLabel(device);
+  const dateStr = new Date(fromTime).toISOString().slice(0, 10);
+  return new Response(csv, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${label.replace(/\s/g, "_")}-${dateStr}.csv"`,
+      ...CORS,
+    },
+  });
 }
 
 function validateThreshold(payload) {
@@ -1097,8 +1364,18 @@ function deviceLabel(device) {
   return n ? `Kolam ${Number(n)}` : device;
 }
 
-function assertDevice(device) {
-  if (!DEVICES.includes(device)) throw new ApiError("Device tidak valid", 400);
+async function assertDevice(device, env) {
+  // Validasi device secara dinamis dari database
+  if (env) {
+    const res = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?device=eq.${encodeURIComponent(device)}&select=device`, { headers: readHeaders(env) });
+    if (res.ok) {
+      const rows = await res.json();
+      if (!rows.length) throw new ApiError("Device tidak valid", 400);
+      return;
+    }
+  }
+  // Fallback validasi format
+  if (!/^esp-\d+$/.test(device)) throw new ApiError("Device tidak valid", 400);
 }
 
 function clampInt(value, min, max, fallback) {

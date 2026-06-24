@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:aquaponic/core/constants/app_colors.dart';
 import 'package:aquaponic/core/constants/app_text_styles.dart';
 import 'package:aquaponic/routes/app_routes.dart';
@@ -98,10 +99,12 @@ class _SensorMainScreenState extends State<SensorMainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.white,
-      body: Column(
-        children: [
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.dark,
+      child: Scaffold(
+        backgroundColor: AppColors.white,
+        body: Column(
+          children: [
           // Custom AppBar area
           SafeArea(
             bottom: false,
@@ -226,6 +229,6 @@ class _SensorMainScreenState extends State<SensorMainScreen> {
           ),
         ],
       ),
-    );
+    ));
   }
 }

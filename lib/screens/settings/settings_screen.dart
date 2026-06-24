@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:aquaponic/core/constants/app_colors.dart';
+import 'package:aquaponic/core/network/api_client.dart';
+import 'package:aquaponic/services/device_service.dart';
 import 'package:aquaponic/widgets/gradient_background.dart';
 import 'package:aquaponic/widgets/app_text_field.dart';
+import 'package:aquaponic/widgets/app_button.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -12,71 +15,206 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _weatherNotif = true;
-  bool _suhuWarning = true;
-  bool _phWarning = false;
+  List<Map<String, dynamic>> _devices = [];
+  String? _selectedDevice;
+  bool _loading = true;
+  bool _saving = false;
 
-  final List<String> _weatherTypes = ['Cerah', 'Berawan', 'Gerimis', 'Hujan', 'Badai'];
-  final List<String> _selectedWeather = ['Gerimis', 'Hujan', 'Badai'];
+  final _tempMinCtrl = TextEditingController();
+  final _tempMaxCtrl = TextEditingController();
+  final _phMinCtrl = TextEditingController();
+  final _phMaxCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDevices();
+  }
+
+  Future<void> _loadDevices() async {
+    try {
+      final devices = await DeviceService.getDevices();
+      if (mounted) {
+        setState(() {
+          _devices = devices;
+          if (devices.isNotEmpty) {
+            _selectedDevice = devices.first['device'];
+            _updateFieldsForSelected();
+          }
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _updateFieldsForSelected() {
+    if (_selectedDevice == null) return;
+    final device = _devices.firstWhere((d) => d['device'] == _selectedDevice);
+    final th = device['threshold'] ?? {};
+    _tempMinCtrl.text = (th['temp_min'] ?? 25.0).toString();
+    _tempMaxCtrl.text = (th['temp_max'] ?? 32.0).toString();
+    _phMinCtrl.text = (th['ph_min'] ?? 6.5).toString();
+    _phMaxCtrl.text = (th['ph_max'] ?? 8.5).toString();
+  }
+
+  @override
+  void dispose() {
+    _tempMinCtrl.dispose();
+    _tempMaxCtrl.dispose();
+    _phMinCtrl.dispose();
+    _phMaxCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveThresholds() async {
+    if (_selectedDevice == null) return;
+    setState(() => _saving = true);
+
+    try {
+      final tMin = double.tryParse(_tempMinCtrl.text);
+      final tMax = double.tryParse(_tempMaxCtrl.text);
+      final pMin = double.tryParse(_phMinCtrl.text);
+      final pMax = double.tryParse(_phMaxCtrl.text);
+
+      await DeviceService.updateThreshold(
+        _selectedDevice!,
+        tempMin: tMin,
+        tempMax: tMax,
+        phMin: pMin,
+        phMax: pMax,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Batas Aman berhasil disimpan'), backgroundColor: AppColors.statusGood),
+        );
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: AppColors.statusDanger),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Gagal menyimpan. Periksa jaringan.'), backgroundColor: AppColors.statusDanger),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return GradientBackground(
       child: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Pengaturan',
-                style: GoogleFonts.poppins(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.white,
-                ),
-              ),
-              const SizedBox(height: 32),
-              
-              // Cuaca Section
-              _buildSectionTitle('Cuaca'),
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: AppColors.white,
-                  borderRadius: BorderRadius.circular(16),
-                ),
+        child: _loading
+            ? const Center(child: CircularProgressIndicator(color: AppColors.white))
+            : SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Notifikasi Prakiraan Cuaca', style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w500)),
-                        Switch(value: _weatherNotif, onChanged: (v) => setState(() => _weatherNotif = v), activeThumbColor: AppColors.primaryBlue),
-                      ],
+                    Text(
+                      'Pengaturan',
+                      style: GoogleFonts.poppins(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.white,
+                      ),
                     ),
-                    const Divider(height: 32),
-                    Text('Pilihan Cuaca', style: GoogleFonts.poppins(color: AppColors.textSecondary)),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _weatherTypes.map((w) => _buildWeatherChip(w, _selectedWeather.contains(w))).toList(),
-                    ),
+                    const SizedBox(height: 32),
+                    if (_devices.isNotEmpty) ...[
+                      _buildSectionTitle('Pilih Kolam'),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        decoration: BoxDecoration(
+                          color: AppColors.white,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _selectedDevice,
+                            isExpanded: true,
+                            items: _devices.map((d) {
+                              return DropdownMenuItem<String>(
+                                value: d['device'],
+                                child: Text(d['label'] ?? d['device'], style: GoogleFonts.poppins()),
+                              );
+                            }).toList(),
+                            onChanged: (val) {
+                              setState(() {
+                                _selectedDevice = val;
+                                _updateFieldsForSelected();
+                              });
+                            },
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      _buildSectionTitle('Sensor Suhu'),
+                      _buildSensorSettingCard(
+                        'Suhu Air (°C)',
+                        Icons.thermostat,
+                        _tempMinCtrl,
+                        _tempMaxCtrl,
+                        '-10',
+                        '80',
+                      ),
+                      const SizedBox(height: 16),
+                      _buildSectionTitle('Sensor pH'),
+                      _buildSensorSettingCard(
+                        'Tingkat Keasaman (pH)',
+                        Icons.science,
+                        _phMinCtrl,
+                        _phMaxCtrl,
+                        '0',
+                        '14',
+                      ),
+                      const SizedBox(height: 32),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: _saving
+                            ? const Center(child: CircularProgressIndicator(color: AppColors.white))
+                            : ElevatedButton(
+                                onPressed: _saveThresholds,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.primaryBlue,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                                child: Text(
+                                  'Simpan Perubahan',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.white,
+                                  ),
+                                ),
+                              ),
+                      ),
+                    ] else ...[
+                      Center(
+                        child: Container(
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            color: AppColors.white,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Text(
+                            'Belum ada kolam terdaftar.',
+                            style: GoogleFonts.poppins(color: AppColors.textSecondary),
+                          ),
+                        ),
+                      ),
+                    ]
                   ],
                 ),
               ),
-              const SizedBox(height: 24),
-              
-              // Sensor Section
-              _buildSectionTitle('Sensor'),
-              _buildSensorSettingCard('Suhu', Icons.thermostat, _suhuWarning, (v) => setState(() => _suhuWarning = v), '0-100', '0-100'),
-              const SizedBox(height: 16),
-              _buildSensorSettingCard('pH', Icons.science, _phWarning, (v) => setState(() => _phWarning = v), '0-14', '0-14'),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -91,35 +229,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildWeatherChip(String label, bool isSelected) {
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          if (isSelected) {
-            _selectedWeather.remove(label);
-          } else {
-            _selectedWeather.add(label);
-          }
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.primaryBlue : Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(
-          label,
-          style: GoogleFonts.poppins(
-            color: isSelected ? AppColors.white : AppColors.textSecondary,
-            fontSize: 13,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSensorSettingCard(String name, IconData icon, bool toggleValue, ValueChanged<bool> onToggle, String hintAtas, String hintBawah) {
+  Widget _buildSensorSettingCard(
+      String name, IconData icon, TextEditingController minCtrl, TextEditingController maxCtrl, String hintBawah, String hintAtas) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -135,22 +246,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Text(name, style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold)),
             ],
           ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Early Warning System', style: GoogleFonts.poppins(fontSize: 14)),
-              Switch(value: toggleValue, onChanged: onToggle, activeThumbColor: AppColors.primaryBlue),
-            ],
-          ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           Row(
             children: [
-              Expanded(child: AppTextField(label: 'Batas Atas', hint: hintAtas)),
-              const SizedBox(width: 12),
-              Expanded(child: AppTextField(label: 'Batas Bawah', hint: hintBawah)),
-              const SizedBox(width: 12),
-              Expanded(child: AppTextField(label: 'Waktu (detik)', hint: '60')),
+              Expanded(
+                child: AppTextField(
+                  label: 'Batas Bawah',
+                  hint: hintBawah,
+                  controller: minCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: AppTextField(
+                  label: 'Batas Atas',
+                  hint: hintAtas,
+                  controller: maxCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                ),
+              ),
             ],
           ),
         ],

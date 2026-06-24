@@ -96,6 +96,21 @@ class ApiClient {
     return _handleResponse(response);
   }
 
+  /// PATCH request — returns decoded JSON body.
+  static Future<dynamic> patch(
+    String path, {
+    bool auth = true,
+    Map<String, dynamic>? body,
+  }) async {
+    final uri = Uri.parse('$baseUrl$path');
+    final response = await http.patch(
+      uri,
+      headers: await _headers(auth: auth),
+      body: body != null ? jsonEncode(body) : null,
+    );
+    return _handleResponse(response);
+  }
+
   // ── Response handler ───────────────────────────────────────────
 
   static dynamic _handleResponse(http.Response response) {
@@ -108,6 +123,9 @@ class ApiClient {
         final body = jsonDecode(response.body);
         if (body is Map && body.containsKey('error')) {
           message = body['error'];
+          if (body.containsKey('detail') && body['detail'] != null) {
+            message += ': ${body['detail']}';
+          }
         }
       } catch (_) {}
       throw ApiException(response.statusCode, message);
