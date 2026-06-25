@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:aquaponic/core/constants/app_colors.dart';
@@ -16,12 +17,57 @@ class SensorMainScreen extends StatefulWidget {
 }
 
 class _SensorMainScreenState extends State<SensorMainScreen> {
-  late Future<List<Kolam>> _kolamFuture;
+  List<Kolam>? _kolamList;
+  bool _hasError = false;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
-    _kolamFuture = _fetchDevices();
+    _loadInitialData();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (mounted) {
+        _silentRefresh();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadInitialData() async {
+    try {
+      final data = await _fetchDevices();
+      if (mounted) {
+        setState(() {
+          _kolamList = data;
+          _hasError = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _hasError = true;
+        });
+      }
+    }
+  }
+
+  Future<void> _silentRefresh() async {
+    try {
+      final data = await _fetchDevices();
+      if (mounted) {
+        setState(() {
+          _kolamList = data;
+          _hasError = false;
+        });
+      }
+    } catch (_) {
+      // Do nothing on background refresh error, keep existing data
+    }
   }
 
   Future<List<Kolam>> _fetchDevices() async {
@@ -93,8 +139,10 @@ class _SensorMainScreenState extends State<SensorMainScreen> {
 
   void _refresh() {
     setState(() {
-      _kolamFuture = _fetchDevices();
+      _kolamList = null; // force show loading indicator for manual refresh
+      _hasError = false;
     });
+    _loadInitialData();
   }
 
   @override
@@ -158,16 +206,9 @@ class _SensorMainScreenState extends State<SensorMainScreen> {
           // Content with gradient background
           Expanded(
             child: GradientBackground(
-              child: FutureBuilder<List<Kolam>>(
-                future: _kolamFuture,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(
-                      child: CircularProgressIndicator(color: AppColors.white),
-                    );
-                  }
-
-                  if (snapshot.hasError) {
+              child: Builder(
+                builder: (context) {
+                  if (_hasError) {
                     return Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -189,9 +230,13 @@ class _SensorMainScreenState extends State<SensorMainScreen> {
                     );
                   }
 
-                  final kolamList = snapshot.data ?? [];
+                  if (_kolamList == null) {
+                    return const Center(
+                      child: CircularProgressIndicator(color: AppColors.white),
+                    );
+                  }
 
-                  if (kolamList.isEmpty) {
+                  if (_kolamList!.isEmpty) {
                     return Center(
                       child: Text(
                         'Tidak ada perangkat yang terdeteksi.',
@@ -201,12 +246,12 @@ class _SensorMainScreenState extends State<SensorMainScreen> {
                   }
 
                   return RefreshIndicator(
-                    onRefresh: () async => _refresh(),
+                    onRefresh: () async => _silentRefresh(),
                     child: ListView.builder(
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                      itemCount: kolamList.length,
+                      itemCount: _kolamList!.length,
                       itemBuilder: (context, index) {
-                        final kolam = kolamList[index];
+                        final kolam = _kolamList![index];
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 16),
                           child: SensorCard(
