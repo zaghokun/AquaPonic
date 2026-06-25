@@ -808,6 +808,61 @@ async function postSensor(request, env) {
     });
     return json({ error: "Supabase insert failed", detail }, 502);
   }
+
+  // --- CEK THRESHOLD UNTUK NOTIFIKASI ---
+  try {
+    const deviceName = rows[0]?.device;
+    if (deviceName) {
+      const threshRes = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?device=eq.${encodeURIComponent(deviceName)}`, { headers: readHeaders(env) });
+      const threshData = await threshRes.json();
+      if (threshData && threshData.length > 0) {
+        const t = threshData[0];
+        const latest = rows[rows.length - 1]; // Bacaan terakhir di batch ini
+        let msg = "";
+        let sev = "";
+
+        if (latest.temperature != null) {
+          if (latest.temperature < t.temp_min) { msg = `Suhu terlalu rendah (${latest.temperature}°C).`; sev = "warning"; }
+          else if (latest.temperature > t.temp_max) { msg = `Suhu terlalu tinggi (${latest.temperature}°C).`; sev = "danger"; }
+        }
+
+        if (latest.ph != null) {
+          if (latest.ph < t.ph_min) { msg += ` pH terlalu asam (${latest.ph}).`; sev = "danger"; }
+          else if (latest.ph > t.ph_max) { msg += ` pH terlalu basa (${latest.ph}).`; sev = "danger"; }
+        }
+
+        if (msg !== "") {
+          // Cek apakah sudah ada alert dalam 15 menit terakhir agar tidak spam
+          const logRes = await fetch(`${env.SUPABASE_URL}/rest/v1/activity_logs?action=eq.sensor.alert&target_id=eq.${encodeURIComponent(deviceName)}&order=created_at.desc&limit=1`, { headers: readHeaders(env) });
+          const logData = await logRes.json();
+          let shouldAlert = true;
+
+          if (logData && logData.length > 0) {
+            const lastAlertTime = new Date(logData[0].created_at).getTime();
+            if (Date.now() - lastAlertTime < 15 * 60 * 1000) {
+              shouldAlert = false;
+            }
+          }
+
+          if (shouldAlert) {
+            await logActivity(env, {
+              request,
+              actor_type: "system",
+              action: "sensor.alert",
+              target_type: "device",
+              target_id: deviceName,
+              source: "worker",
+              severity: sev,
+              metadata: { detail: msg.trim() },
+            });
+          }
+        }
+      }
+    }
+  } catch (err) {
+    // Abaikan jika gagal cek threshold agar tidak membatalkan respons ESP
+  }
+
   return json({ success: true, inserted: rows.length }, 201);
 }
 
