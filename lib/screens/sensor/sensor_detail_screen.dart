@@ -24,14 +24,19 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
   String _selectedPHPeriod = 'Jam';
   final List<String> _periods = ['Menit', 'Jam', 'Hari', 'Minggu', 'Bulan'];
 
-  List<Map<String, dynamic>> _seriesData = [];
-  bool _isLoading = true;
-  String? _error;
+  // Data grafik terpisah untuk Suhu dan pH
+  List<Map<String, dynamic>> _suhuSeriesData = [];
+  List<Map<String, dynamic>> _phSeriesData = [];
+  bool _isSuhuLoading = true;
+  bool _isPhLoading = true;
+  String? _suhuError;
+  String? _phError;
 
   @override
   void initState() {
     super.initState();
-    _loadSeries('hour');
+    _loadSuhuSeries('hour');
+    _loadPhSeries('hour');
   }
 
   String _periodToBucket(String period) {
@@ -45,31 +50,52 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
     }
   }
 
-  Future<void> _loadSeries(String bucket) async {
-    setState(() { _isLoading = true; _error = null; });
+  String? _periodToFrom(String bucket) {
+    final now = DateTime.now().toUtc();
+    switch (bucket) {
+      case 'minute': return now.subtract(const Duration(hours: 1)).toIso8601String();
+      case 'hour': return now.subtract(const Duration(hours: 24)).toIso8601String();
+      case 'day': return now.subtract(const Duration(days: 7)).toIso8601String();
+      case 'month': return now.subtract(const Duration(days: 365)).toIso8601String();
+      default: return null;
+    }
+  }
+
+  Future<void> _loadSuhuSeries(String bucket) async {
+    setState(() { _isSuhuLoading = true; _suhuError = null; });
     try {
-      final now = DateTime.now().toUtc();
-      String? from;
-      switch (bucket) {
-        case 'minute': from = now.subtract(const Duration(hours: 1)).toIso8601String(); break;
-        case 'hour': from = now.subtract(const Duration(hours: 24)).toIso8601String(); break;
-        case 'day': from = now.subtract(const Duration(days: 7)).toIso8601String(); break;
-        case 'month': from = now.subtract(const Duration(days: 365)).toIso8601String(); break;
-      }
+      final from = _periodToFrom(bucket);
       final data = await DeviceService.getDeviceSeries(
         widget.kolam.id,
         bucket: bucket,
         from: from,
-        to: now.toIso8601String(),
+        to: DateTime.now().toUtc().toIso8601String(),
       );
-      setState(() { _seriesData = data; _isLoading = false; });
+      setState(() { _suhuSeriesData = data; _isSuhuLoading = false; });
     } catch (e) {
-      setState(() { _error = 'Gagal memuat data grafik'; _isLoading = false; });
+      setState(() { _suhuError = 'Gagal memuat data grafik'; _isSuhuLoading = false; });
+    }
+  }
+
+  Future<void> _loadPhSeries(String bucket) async {
+    setState(() { _isPhLoading = true; _phError = null; });
+    try {
+      final from = _periodToFrom(bucket);
+      final data = await DeviceService.getDeviceSeries(
+        widget.kolam.id,
+        bucket: bucket,
+        from: from,
+        to: DateTime.now().toUtc().toIso8601String(),
+      );
+      setState(() { _phSeriesData = data; _isPhLoading = false; });
+    } catch (e) {
+      setState(() { _phError = 'Gagal memuat data grafik'; _isPhLoading = false; });
     }
   }
 
   Future<void> _exportCsv() async {
-    if (_seriesData.isEmpty) {
+    final exportData = _suhuSeriesData.isNotEmpty ? _suhuSeriesData : _phSeriesData;
+    if (exportData.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Tidak ada data untuk diexport')),
       );
@@ -77,7 +103,7 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
     }
     try {
       final header = "Waktu,Suhu (C),pH\n";
-      final rows = _seriesData.map((d) {
+      final rows = exportData.map((d) {
         final t = d['t'] ?? '';
         final temp = d['temp_avg'] ?? '';
         final ph = d['ph_avg'] ?? '';
@@ -124,7 +150,10 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
             icon: const Icon(Icons.file_download_outlined, color: AppColors.white),
             onPressed: _exportCsv,
           ),
-          IconButton(icon: const Icon(Icons.more_vert, color: AppColors.white), onPressed: () {}),
+          IconButton(
+            icon: const Icon(Icons.settings, color: AppColors.white),
+            onPressed: () => _showSettingsDialog(context),
+          ),
         ],
       ),
       child: SingleChildScrollView(
@@ -134,17 +163,22 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: AppColors.white.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                  child: Text(
-                    k.name,
-                    style: GoogleFonts.poppins(color: AppColors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                Flexible(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: AppColors.white.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: Text(
+                      k.name,
+                      style: GoogleFonts.poppins(color: AppColors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
+                const SizedBox(width: 8),
                 _buildStatusBadge(k.overallStatus),
               ],
             ),
@@ -156,10 +190,13 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
               iconColor: Colors.redAccent,
               status: k.sensorData.suhuStatus,
               dataKey: 'temp_avg',
+              seriesData: _suhuSeriesData,
+              isLoading: _isSuhuLoading,
+              error: _suhuError,
               selectedPeriod: _selectedSuhuPeriod,
               onPeriodChanged: (p) {
                 setState(() => _selectedSuhuPeriod = p);
-                _loadSeries(_periodToBucket(p));
+                _loadSuhuSeries(_periodToBucket(p));
               },
               lineColor: Colors.purpleAccent,
               fillColor: Colors.purpleAccent.withValues(alpha: 0.3),
@@ -172,10 +209,13 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
               iconColor: Colors.blueAccent,
               status: k.sensorData.pHStatus,
               dataKey: 'ph_avg',
+              seriesData: _phSeriesData,
+              isLoading: _isPhLoading,
+              error: _phError,
               selectedPeriod: _selectedPHPeriod,
               onPeriodChanged: (p) {
                 setState(() => _selectedPHPeriod = p);
-                _loadSeries(_periodToBucket(p));
+                _loadPhSeries(_periodToBucket(p));
               },
               lineColor: Colors.blue,
               fillColor: Colors.blue.withValues(alpha: 0.3),
@@ -220,6 +260,9 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
     required Color iconColor,
     required SensorStatus status,
     required String dataKey,
+    required List<Map<String, dynamic>> seriesData,
+    required bool isLoading,
+    required String? error,
     required String selectedPeriod,
     required ValueChanged<String> onPeriodChanged,
     required Color lineColor,
@@ -256,13 +299,13 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
           const SizedBox(height: 24),
           SizedBox(
             height: 200,
-            child: _isLoading
+            child: isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : _error != null
-                    ? Center(child: Text(_error!, style: GoogleFonts.poppins(color: AppColors.textSecondary)))
-                    : _seriesData.isEmpty
+                : error != null
+                    ? Center(child: Text(error, style: GoogleFonts.poppins(color: AppColors.textSecondary)))
+                    : seriesData.isEmpty
                         ? Center(child: Text('Belum ada data', style: GoogleFonts.poppins(color: AppColors.textSecondary)))
-                        : _buildLineChart(dataKey, lineColor, fillColor, selectedPeriod),
+                        : _buildLineChart(dataKey, lineColor, fillColor, selectedPeriod, seriesData),
           ),
           const SizedBox(height: 24),
           SingleChildScrollView(
@@ -276,10 +319,10 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
     );
   }
 
-  Widget _buildLineChart(String dataKey, Color lineColor, Color fillColor, String selectedPeriod) {
+  Widget _buildLineChart(String dataKey, Color lineColor, Color fillColor, String selectedPeriod, List<Map<String, dynamic>> seriesData) {
     final spots = <FlSpot>[];
-    for (int i = 0; i < _seriesData.length; i++) {
-      final val = (_seriesData[i][dataKey] as num?)?.toDouble();
+    for (int i = 0; i < seriesData.length; i++) {
+      final val = (seriesData[i][dataKey] as num?)?.toDouble();
       if (val != null) {
         spots.add(FlSpot(i.toDouble(), val));
       }
@@ -291,7 +334,6 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
 
     final minY = spots.map((s) => s.y).reduce((a, b) => a < b ? a : b) - 2;
     final maxY = spots.map((s) => s.y).reduce((a, b) => a > b ? a : b) + 2;
-
     return LineChart(
       LineChartData(
         gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.shade200, strokeWidth: 1)),
@@ -304,21 +346,22 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
             interval: (spots.length / 6).ceilToDouble().clamp(1, double.infinity),
             getTitlesWidget: (v, meta) {
               final idx = v.toInt();
-              if (idx < 0 || idx >= _seriesData.length) return const SizedBox.shrink();
-              final t = _seriesData[idx]['t'] ?? '';
+              if (idx < 0 || idx >= seriesData.length) return const SizedBox.shrink();
+              final t = seriesData[idx]['t'] ?? '';
               String timePart = '$idx';
               if (t is String && t.isNotEmpty) {
                 try {
                   final dt = DateTime.parse(t).toLocal();
-                  final DateFormat formatter = selectedPeriod == 'Hari' || selectedPeriod == 'Bulan' || selectedPeriod == 'Minggu' ? DateFormat('dd MMM') : DateFormat('HH:mm');
-                  timePart = formatter.format(dt);
-                } catch (_) {
-                  timePart = t.length >= 16 ? t.substring(11, 16) : t;
-                }
+                  if (selectedPeriod == 'Menit' || selectedPeriod == 'Jam') {
+                    timePart = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+                  } else {
+                    timePart = '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}';
+                  }
+                } catch (_) {}
               }
               return Padding(
                 padding: const EdgeInsets.only(top: 8.0),
-                child: Text(timePart, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                child: Text(timePart, style: GoogleFonts.poppins(fontSize: 10, color: AppColors.textSecondary)),
               );
             },
           )),
@@ -337,7 +380,10 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
             barWidth: 3,
             isStrokeCapRound: true,
             dotData: const FlDotData(show: false),
-            belowBarData: BarAreaData(show: true, color: fillColor),
+            belowBarData: BarAreaData(
+              show: true,
+              color: fillColor,
+            ),
           ),
         ],
       ),
@@ -363,5 +409,272 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
         ),
       ),
     );
+  }
+
+  // ─── PENGATURAN SENSOR (SETTINGS DIALOG) ───────────────────────────
+  void _showSettingsDialog(BuildContext context) {
+    final k = widget.kolam;
+    final nameController = TextEditingController(text: k.name);
+
+    final tempMinCtrl = TextEditingController(text: '25.0');
+    final tempMaxCtrl = TextEditingController(text: '32.0');
+    final phMinCtrl = TextEditingController(text: '6.5');
+    final phMaxCtrl = TextEditingController(text: '8.5');
+
+    // Load threshold aktual dari API
+    DeviceService.getThresholds().then((thresholds) {
+      for (final t in thresholds) {
+        if (t['device'] == k.id) {
+          if (mounted) {
+            tempMinCtrl.text = (t['temp_min'] ?? 25.0).toString();
+            tempMaxCtrl.text = (t['temp_max'] ?? 32.0).toString();
+            phMinCtrl.text = (t['ph_min'] ?? 6.5).toString();
+            phMaxCtrl.text = (t['ph_max'] ?? 8.5).toString();
+            if (t['label'] != null) nameController.text = t['label'];
+          }
+          break;
+        }
+      }
+    });
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(ctx).viewInsets.bottom,
+        ),
+        decoration: const BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text('Pengaturan Sensor', style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+              const SizedBox(height: 8),
+              Text('Perangkat: ${k.id}', style: GoogleFonts.poppins(fontSize: 13, color: AppColors.textSecondary)),
+              const SizedBox(height: 20),
+
+              // Nama sensor
+              Text('Nama Sensor', style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: nameController,
+                decoration: InputDecoration(
+                  hintText: 'Contoh: Kolam Lele',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Batas Suhu
+              Text('Batas Suhu (°C)', style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(child: TextField(
+                    controller: tempMinCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(labelText: 'Min', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+                  )),
+                  const SizedBox(width: 12),
+                  Expanded(child: TextField(
+                    controller: tempMaxCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(labelText: 'Max', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+                  )),
+                ],
+              ),
+              const SizedBox(height: 20),
+
+              // Batas pH
+              Text('Batas pH', style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(child: TextField(
+                    controller: phMinCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(labelText: 'Min', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+                  )),
+                  const SizedBox(width: 12),
+                  Expanded(child: TextField(
+                    controller: phMaxCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(labelText: 'Max', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+                  )),
+                ],
+              ),
+              const SizedBox(height: 24),
+
+              // Tombol Simpan
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _saveSettings(
+                    ctx,
+                    nameController.text.trim(),
+                    double.tryParse(tempMinCtrl.text) ?? 25.0,
+                    double.tryParse(tempMaxCtrl.text) ?? 32.0,
+                    double.tryParse(phMinCtrl.text) ?? 6.5,
+                    double.tryParse(phMaxCtrl.text) ?? 8.5,
+                  ),
+                  icon: const Icon(Icons.save, color: AppColors.white),
+                  label: Text('Simpan Perubahan', style: GoogleFonts.poppins(color: AppColors.white, fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primaryBlue,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Tombol Hapus Sensor
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => _confirmDelete(ctx),
+                  icon: const Icon(Icons.delete_forever, color: Colors.red),
+                  label: Text('Hapus Sensor', style: GoogleFonts.poppins(color: Colors.red, fontWeight: FontWeight.bold)),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.red),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _saveSettings(BuildContext ctx, String label, double tempMin, double tempMax, double phMin, double phMax) async {
+    Navigator.pop(ctx);
+    try {
+      await DeviceService.updateDevice(
+        widget.kolam.id,
+        label: label,
+        tempMin: tempMin,
+        tempMax: tempMax,
+        phMin: phMin,
+        phMax: phMax,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Pengaturan sensor berhasil disimpan'),
+            backgroundColor: AppColors.statusGood,
+          ),
+        );
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal menyimpan: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  void _confirmDelete(BuildContext sheetCtx) {
+    showDialog(
+      context: sheetCtx,
+      builder: (dialogCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: Colors.red, size: 28),
+            const SizedBox(width: 8),
+            Text('Hapus Sensor', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Anda yakin ingin menghapus "${widget.kolam.name}" dari daftar sensor?',
+              style: GoogleFonts.poppins(fontSize: 14),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.orange.shade200),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_outline, color: Colors.orange.shade700, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Pastikan Anda sudah mengunduh data CSV terlebih dahulu jika masih dibutuhkan. Data riwayat tidak akan dihapus dari server.',
+                      style: GoogleFonts.poppins(fontSize: 12, color: Colors.orange.shade900),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx),
+            child: Text('Batal', style: GoogleFonts.poppins(color: AppColors.textSecondary)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(dialogCtx);
+              Navigator.pop(sheetCtx);
+              await _deleteDevice();
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+            child: Text('Hapus', style: GoogleFonts.poppins(color: AppColors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteDevice() async {
+    try {
+      await DeviceService.deleteDevice(widget.kolam.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Sensor "${widget.kolam.name}" berhasil dihapus'),
+            backgroundColor: AppColors.statusGood,
+          ),
+        );
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal menghapus sensor: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 }

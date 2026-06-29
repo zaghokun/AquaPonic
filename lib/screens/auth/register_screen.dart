@@ -55,7 +55,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Registrasi berhasil! Silakan cek email untuk konfirmasi.'),
+            content: Text('Registrasi berhasil! Akun Anda sedang menunggu persetujuan Admin.'),
             backgroundColor: AppColors.statusGood,
           ),
         );

@@ -113,6 +113,7 @@ create policy "read_hourly_auth" on readings_hourly for select to authenticated 
 -- ===== 6. TABEL THRESHOLDS (ambang batas alert) =====
 create table if not exists thresholds (
   device   text primary key,
+  label    text,
   ph_min   real default 6.0, ph_max   real default 8.5,
   temp_min real default 0,   temp_max real default 40
 );
@@ -156,8 +157,26 @@ create policy "activity_admin_read"
   to authenticated
   using ((auth.jwt() -> 'app_metadata' ->> 'role') = 'admin');
 
+-- ===== 8. TABEL FCM TOKENS (Push Notification) =====
+create table if not exists fcm_tokens (
+  id         bigint generated always as identity primary key,
+  user_id    uuid not null,
+  token      text not null unique,
+  platform   text default 'android',
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+alter table fcm_tokens enable row level security;
+drop policy if exists "fcm_owner_rw" on fcm_tokens;
+create policy "fcm_owner_rw" on fcm_tokens
+  for all to authenticated
+  using (user_id = auth.uid());
+
+create index if not exists idx_fcm_tokens_user on fcm_tokens (user_id);
+
 -- =====================================================
 --  SELESAI. Langkah manual yang TIDAK bisa lewat SQL:
 --   - Dashboard > Authentication > Providers > Email: aktifkan
 --   - Dashboard > Authentication > Users > Add user: buat akun untuk app
+--   - Setup Firebase: tambahkan google-services.json ke android/app/
 -- =====================================================

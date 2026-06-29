@@ -5,6 +5,7 @@ import 'package:aquaponic/screens/sensor/sensor_main_screen.dart';
 import 'package:aquaponic/screens/settings/settings_screen.dart';
 import 'package:aquaponic/screens/notification/notification_screen.dart';
 import 'package:aquaponic/screens/account/account_screen.dart';
+import 'package:aquaponic/services/fcm_service.dart';
 
 class MainNavigation extends StatefulWidget {
   const MainNavigation({super.key});
@@ -15,6 +16,14 @@ class MainNavigation extends StatefulWidget {
 
 class _MainNavigationState extends State<MainNavigation> {
   int _currentIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    try {
+      FcmService.init();
+    } catch (_) {}
+  }
 
   final List<Widget> _pages = [
     const SensorMainScreen(),

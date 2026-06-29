@@ -114,4 +114,32 @@ class DeviceService {
     const base = 'https://sensor-monitor.aquaponic.workers.dev/api';
     return '$base/devices/export?device=${Uri.encodeComponent(deviceId)}&from=${Uri.encodeComponent(from)}&to=${Uri.encodeComponent(to)}';
   }
+
+  /// Update device label and thresholds.
+  /// Endpoint: PUT /api/devices/:id
+  static Future<Map<String, dynamic>> updateDevice(
+    String deviceId, {
+    String? label,
+    double? phMin,
+    double? phMax,
+    double? tempMin,
+    double? tempMax,
+  }) async {
+    final body = <String, dynamic>{};
+    if (label != null) body['label'] = label;
+    if (phMin != null) body['ph_min'] = phMin;
+    if (phMax != null) body['ph_max'] = phMax;
+    if (tempMin != null) body['temp_min'] = tempMin;
+    if (tempMax != null) body['temp_max'] = tempMax;
+
+    final data = await ApiClient.put('/devices/$deviceId', body: body);
+    return Map<String, dynamic>.from(data);
+  }
+
+  /// Delete a device from the active sensor list.
+  /// Endpoint: DELETE /api/devices/:id
+  static Future<void> deleteDevice(String deviceId) async {
+    await ApiClient.delete('/devices/$deviceId');
+  }
 }
+

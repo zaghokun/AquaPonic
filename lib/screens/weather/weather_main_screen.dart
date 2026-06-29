@@ -93,14 +93,17 @@ class _WeatherMainScreenState extends State<WeatherMainScreen> {
         final timeStr = h['time']?.toString() ?? '';
         final dt = DateTime.tryParse(timeStr);
         if (dt == null) return false;
-        // Keep if the hour is current or in the future
-        return dt.isAfter(now.subtract(const Duration(hours: 1)));
+        // Open-Meteo mengembalikan waktu dalam timezone lokal (Asia/Jakarta),
+        // tapi DateTime.parse menganggapnya sebagai UTC.
+        // Kita paksa treat sebagai waktu lokal untuk perbandingan yang akurat.
+        final localDt = DateTime(dt.year, dt.month, dt.day, dt.hour, dt.minute);
+        return localDt.isAfter(now.subtract(const Duration(hours: 1)));
       }).take(12).map((h) {
         final time = h['time'] ?? '';
-        // Parse ISO time and show hour
         String displayTime;
         try {
           final dt = DateTime.parse(time);
+          // Format langsung tanpa konversi toLocal() karena sudah local time
           displayTime = DateFormat('HH:mm').format(dt);
         } catch (_) {
           displayTime = time.toString().length >= 16 ? time.toString().substring(11, 16) : time.toString();

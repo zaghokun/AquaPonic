@@ -7,6 +7,7 @@ import 'package:aquaponic/widgets/app_button.dart';
 import 'package:aquaponic/widgets/app_text_field.dart';
 import 'package:aquaponic/widgets/gradient_background.dart';
 import 'package:aquaponic/services/auth_service.dart';
+import 'package:aquaponic/services/fcm_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -18,8 +19,24 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  bool _isLoading = false;
+  bool _isLoading = true; // Set default true saat ngecek auth
   String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAuth();
+  }
+
+  Future<void> _checkAuth() async {
+    final user = await AuthService.me();
+    if (user != null) {
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, AppRoutes.main);
+    } else {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -44,6 +61,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       await AuthService.login(email, password);
+      // Inisialisasi FCM setelah login sukses untuk mendapatkan dan menyimpan token
+      try {
+        await FcmService.init();
+      } catch (e) {
+        debugPrint('Gagal inisialisasi FCM: $e');
+      }
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, AppRoutes.main);
     } on ApiException catch (e) {
@@ -159,23 +182,6 @@ class _LoginScreenState extends State<LoginScreen> {
                               text: 'Masuk',
                               onPressed: _handleLogin,
                             ),
-                      const SizedBox(height: 24),
-                      Row(
-                        children: [
-                          Expanded(child: Divider(color: Colors.grey.shade300)),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: Text('atau', style: GoogleFonts.poppins(color: AppColors.textSecondary)),
-                          ),
-                          Expanded(child: Divider(color: Colors.grey.shade300)),
-                        ],
-                      ),
-                      const SizedBox(height: 24),
-                      AppOutlinedButton(
-                        text: 'Masuk dengan Google',
-                        icon: const Icon(Icons.g_mobiledata, size: 28, color: Colors.red),
-                        onPressed: () {},
-                      ),
                       const SizedBox(height: 24),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,

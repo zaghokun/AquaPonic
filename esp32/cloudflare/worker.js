@@ -140,9 +140,25 @@ export default {
         return addDevice(request, env, auth);
       }
 
+      const deviceUpdate = matchPath(url.pathname, /^\/api\/devices\/([^/]+)$/);
+      if (request.method === "PUT" && deviceUpdate) {
+        const auth = await requireAuth(request, env);
+        return updateDevice(request, env, deviceUpdate[1], auth);
+      }
+
+      if (request.method === "DELETE" && deviceUpdate) {
+        const auth = await requireAuth(request, env);
+        return deleteDevice(request, env, deviceUpdate[1], auth);
+      }
+
       if (request.method === "GET" && url.pathname === "/api/devices/export") {
         const auth = await requireAuth(request, env);
         return exportDeviceReadings(request, url, env, auth);
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/fcm-token") {
+        const auth = await requireAuth(request, env);
+        return saveFcmToken(request, env, auth);
       }
 
       if (request.method === "GET" && url.pathname === "/api/weather/current") {
@@ -261,6 +277,13 @@ async function login(request, env) {
 
   const data = await res.json();
   if (!res.ok) {
+    let errorMessage = "Login gagal";
+    let errorDetail = data.error_description || data.msg || data.error;
+
+    if (errorDetail === "User is banned") {
+      errorDetail = "Akun Anda sedang menunggu persetujuan Admin / Diblokir";
+    }
+
     await logActivity(env, {
       request,
       actor_type: "user",
@@ -269,9 +292,9 @@ async function login(request, env) {
       target_type: "auth",
       source: "worker",
       severity: "warning",
-      metadata: { detail: data.error_description || data.msg || data.error || null },
+      metadata: { detail: errorDetail || null },
     });
-    return json({ error: "Login gagal", detail: data.error_description || data.msg || data.error }, 401);
+    return json({ error: errorMessage, detail: errorDetail }, 401);
   }
 
   const role = getUserRole(data.user);
@@ -319,6 +342,15 @@ async function register(request, env) {
     return json({ error: "Registrasi gagal", detail: data.error_description || data.msg || data.error }, 400);
   }
 
+  // Langsung blokir (ban) user baru sampai disetujui Admin
+  if (data.user && data.user.id && env.SUPABASE_SERVICE_KEY) {
+    await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users/${data.user.id}`, {
+      method: "PUT",
+      headers: adminAuthHeaders(env),
+      body: JSON.stringify({ ban_duration: "876000h" }),
+    }).catch(() => {}); // Abaikan error gagal ban (fallback)
+  }
+
   await logActivity(env, {
     request,
     actor_type: "user",
@@ -329,7 +361,7 @@ async function register(request, env) {
     severity: "info",
   });
 
-  return json({ success: true, message: "Registrasi berhasil. Silakan cek email untuk konfirmasi." }, 201);
+  return json({ success: true, message: "Registrasi berhasil. Akun Anda sedang menunggu persetujuan Admin." }, 201);
 }
 
 async function updateMyProfile(request, env, auth) {
@@ -544,7 +576,9 @@ async function updateUser(request, env, userId, auth) {
     payload.password = password;
   }
   if (body.role !== undefined) payload.app_metadata = { role: normalizeRole(body.role) };
-  if (body.banned_until !== undefined) payload.banned_until = body.banned_until || null;
+  if (body.banned_until !== undefined) {
+    payload.ban_duration = body.banned_until ? "876000h" : "none";
+  }
 
   if (!Object.keys(payload).length) return json({ error: "Tidak ada data yang diubah" }, 400);
 
@@ -832,14 +866,14 @@ async function postSensor(request, env) {
         }
 
         if (msg !== "") {
-          // Cek apakah sudah ada alert dalam 15 menit terakhir agar tidak spam
+          // Cek apakah sudah ada alert dalam 5 menit terakhir agar tidak spam
           const logRes = await fetch(`${env.SUPABASE_URL}/rest/v1/activity_logs?action=eq.sensor.alert&target_id=eq.${encodeURIComponent(deviceName)}&order=created_at.desc&limit=1`, { headers: readHeaders(env) });
           const logData = await logRes.json();
           let shouldAlert = true;
 
           if (logData && logData.length > 0) {
             const lastAlertTime = new Date(logData[0].created_at).getTime();
-            if (Date.now() - lastAlertTime < 15 * 60 * 1000) {
+            if (Date.now() - lastAlertTime < 5 * 60 * 1000) {
               shouldAlert = false;
             }
           }
@@ -855,6 +889,15 @@ async function postSensor(request, env) {
               severity: sev,
               metadata: { detail: msg.trim() },
             });
+
+            // Kirim push notification via FCM
+            const labelName = t.label || deviceLabel(deviceName);
+            await sendFcmNotification(
+              env,
+              `⚠️ Peringatan Sensor - ${labelName}`,
+              msg.trim(),
+              { device: deviceName, severity: sev }
+            );
           }
         }
       }
@@ -943,6 +986,98 @@ async function addDevice(request, env, auth) {
   });
 
   return json(created[0] || defaultThreshold, 201);
+}
+
+// ─── PUT /api/devices/:id (update label & threshold) ─────────────────
+async function updateDevice(request, env, device, auth) {
+  requireEnv(env, ["SUPABASE_URL", "SUPABASE_SERVICE_KEY"]);
+
+  let body;
+  try { body = await request.json(); }
+  catch { return json({ error: "Invalid JSON" }, 400); }
+
+  // Cek device terdaftar
+  const checkRes = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?device=eq.${encodeURIComponent(device)}&select=device`, { headers: readHeaders(env) });
+  const existing = await checkedJson(checkRes, "Gagal memeriksa device");
+  if (!existing.length) return json({ error: `Device '${device}' tidak ditemukan` }, 404);
+
+  // Bangun payload update
+  const update = {};
+  if (body.label !== undefined) update.label = String(body.label).trim();
+  if (body.ph_min !== undefined) update.ph_min = body.ph_min;
+  if (body.ph_max !== undefined) update.ph_max = body.ph_max;
+  if (body.temp_min !== undefined) update.temp_min = body.temp_min;
+  if (body.temp_max !== undefined) update.temp_max = body.temp_max;
+
+  if (!Object.keys(update).length) return json({ error: "Tidak ada field yang diubah" }, 400);
+
+  // Validasi threshold jika ada
+  if (update.ph_min !== undefined || update.ph_max !== undefined || update.temp_min !== undefined || update.temp_max !== undefined) {
+    // Merge dengan data lama untuk validasi lengkap
+    const mergeRes = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?device=eq.${encodeURIComponent(device)}&select=*`, { headers: readHeaders(env) });
+    const mergeData = await checkedJson(mergeRes, "Gagal membaca threshold");
+    const merged = { ...mergeData[0], ...update };
+    const err = validateThreshold(merged);
+    if (err) return json({ error: err }, 400);
+  }
+
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?device=eq.${encodeURIComponent(device)}`, {
+    method: "PATCH",
+    headers: {
+      ...readHeaders(env),
+      "Content-Type": "application/json",
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify(update),
+  });
+
+  const updated = await checkedJson(res, "Gagal memperbarui device");
+  await logActivity(env, {
+    request,
+    actor: auth,
+    action: "user.device_update",
+    target_type: "device",
+    target_id: device,
+    source: "mobile_app",
+    severity: "info",
+    metadata: { device, changes: update },
+  });
+
+  return json(updated[0] || update);
+}
+
+// ─── DELETE /api/devices/:id (hapus dari daftar aktif) ───────────────
+async function deleteDevice(request, env, device, auth) {
+  requireEnv(env, ["SUPABASE_URL", "SUPABASE_SERVICE_KEY"]);
+
+  // Cek device terdaftar
+  const checkRes = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?device=eq.${encodeURIComponent(device)}&select=device`, { headers: readHeaders(env) });
+  const existing = await checkedJson(checkRes, "Gagal memeriksa device");
+  if (!existing.length) return json({ error: `Device '${device}' tidak ditemukan` }, 404);
+
+  // Hapus dari tabel thresholds (data readings tetap utuh)
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?device=eq.${encodeURIComponent(device)}`, {
+    method: "DELETE",
+    headers: readHeaders(env),
+  });
+
+  if (!res.ok) {
+    const detail = await res.text();
+    return json({ error: "Gagal menghapus device", detail }, 502);
+  }
+
+  await logActivity(env, {
+    request,
+    actor: auth,
+    action: "user.device_delete",
+    target_type: "device",
+    target_id: device,
+    source: "mobile_app",
+    severity: "warning",
+    metadata: { device },
+  });
+
+  return json({ success: true, message: `Device '${device}' berhasil dihapus dari daftar aktif` });
 }
 
 async function getDeviceLive(env, device) {
@@ -1296,6 +1431,178 @@ async function purgeOld(env) {
   return { purged_before: cutoff, ok: res.ok };
 }
 
+// ─── POST /api/fcm-token (simpan token FCM perangkat) ────────────────
+async function saveFcmToken(request, env, auth) {
+  requireEnv(env, ["SUPABASE_URL", "SUPABASE_SERVICE_KEY"]);
+
+  let body;
+  try { body = await request.json(); }
+  catch { return json({ error: "Invalid JSON" }, 400); }
+
+  const token = String(body.token || "").trim();
+  if (!token) return json({ error: "Token wajib diisi" }, 400);
+
+  const platform = body.platform || "android";
+  const userId = auth.user?.id;
+
+  if (!userId) return json({ error: "User ID tidak ditemukan" }, 400);
+
+  // Upsert: jika token sudah ada, update updated_at saja
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/fcm_tokens?on_conflict=token`, {
+    method: "POST",
+    headers: {
+      ...adminAuthHeaders(env),
+      "Content-Type": "application/json",
+      Prefer: "resolution=merge-duplicates,return=representation",
+    },
+    body: JSON.stringify({
+      user_id: userId,
+      token,
+      platform,
+      updated_at: new Date().toISOString(),
+    }),
+  });
+
+  if (!res.ok) {
+    const detail = await res.text();
+    return json({ error: "Gagal menyimpan token", detail }, 502);
+  }
+
+  return json({ success: true });
+}
+
+// ─── Generate Google OAuth2 Token for FCM v1 ─────────────────────────
+function base64url(source) {
+  let encoded = btoa(String.fromCharCode.apply(null, new Uint8Array(source)));
+  return encoded.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function stringToArrayBuffer(str) {
+  const encoder = new TextEncoder();
+  return encoder.encode(str);
+}
+
+function pemToArrayBuffer(pem) {
+  const b64Lines = pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
+  const b64Prefix = b64Lines.padEnd(b64Lines.length + (4 - b64Lines.length % 4) % 4, '=');
+  const b64Decoded = atob(b64Prefix);
+  const buffer = new ArrayBuffer(b64Decoded.length);
+  const view = new Uint8Array(buffer);
+  for (let i = 0; i < b64Decoded.length; i++) {
+    view[i] = b64Decoded.charCodeAt(i);
+  }
+  return buffer;
+}
+
+async function getGoogleAuthToken(serviceAccountJson) {
+  const credentials = JSON.parse(serviceAccountJson);
+  const header = { alg: 'RS256', typ: 'JWT' };
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    iss: credentials.client_email,
+    scope: 'https://www.googleapis.com/auth/firebase.messaging',
+    aud: 'https://oauth2.googleapis.com/token',
+    exp: now + 3600,
+    iat: now,
+  };
+  
+  const encodedHeader = base64url(stringToArrayBuffer(JSON.stringify(header)));
+  const encodedPayload = base64url(stringToArrayBuffer(JSON.stringify(payload)));
+  const signatureInput = `${encodedHeader}.${encodedPayload}`;
+  
+  const privateKeyBuffer = pemToArrayBuffer(credentials.private_key);
+  const cryptoKey = await crypto.subtle.importKey(
+    'pkcs8',
+    privateKeyBuffer,
+    { name: 'RSASSA-PKCS1-v1_5', hash: { name: 'SHA-256' } },
+    false,
+    ['sign']
+  );
+  
+  const signature = await crypto.subtle.sign(
+    'RSASSA-PKCS1-v1_5',
+    cryptoKey,
+    stringToArrayBuffer(signatureInput)
+  );
+  
+  const encodedSignature = base64url(signature);
+  const jwt = `${signatureInput}.${encodedSignature}`;
+  
+  const resp = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`
+  });
+  
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(`Failed to get OAuth token: ${JSON.stringify(data)}`);
+  return { token: data.access_token, projectId: credentials.project_id };
+}
+
+// ─── Kirim Push Notification via FCM (HTTP v1) ───────────────────────
+async function sendFcmNotification(env, title, body, data = {}) {
+  // Membutuhkan FIREBASE_SERVICE_ACCOUNT di environment variables
+  if (!env.FIREBASE_SERVICE_ACCOUNT) {
+    console.error("FCM Error: FIREBASE_SERVICE_ACCOUNT is missing in env");
+    return;
+  }
+
+  try {
+    // Ambil semua token FCM yang terdaftar
+    const tokensRes = await fetch(`${env.SUPABASE_URL}/rest/v1/fcm_tokens?select=token`, { headers: adminAuthHeaders(env) });
+    if (!tokensRes.ok) {
+      console.error("FCM Error: Failed to fetch tokens from Supabase", await tokensRes.text());
+      return;
+    }
+    const tokens = await tokensRes.json();
+    if (!tokens.length) {
+      console.log("FCM Warning: No device tokens found in DB");
+      return;
+    }
+
+    const tokenList = tokens.map(t => t.token);
+    const authInfo = await getGoogleAuthToken(env.FIREBASE_SERVICE_ACCOUNT);
+    const fcmUrl = `https://fcm.googleapis.com/v1/projects/${authInfo.projectId}/messages:send`;
+
+    // Kirim notifikasi ke semua token secara paralel
+    const sends = tokenList.map(token =>
+      fetch(fcmUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authInfo.token}`,
+        },
+        body: JSON.stringify({
+          message: {
+            token: token,
+            data: { 
+              ...data, 
+              click_action: "FLUTTER_NOTIFICATION_CLICK",
+              title: title,
+              body: body
+            },
+            android: {
+              priority: "high"
+            }
+          }
+        }),
+      })
+      .then(async res => {
+        const txt = await res.text();
+        console.log(`FCM [${res.status}]: ${txt}`);
+      })
+      .catch(err => {
+        console.error("FCM Fetch Error:", err);
+      })
+    );
+
+    await Promise.all(sends);
+  } catch (err) {
+    console.error("FCM Error:", err.message, err.stack);
+    // Abaikan semua error FCM agar tidak mengganggu alur utama
+  }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────
 function wibDate(iso) {
   const wib = new Date(new Date(iso).getTime() + WIB_OFFSET_MS);
@@ -1376,7 +1683,7 @@ function deviceSummary(device, reading, threshold) {
   const status = reading ? staleStatus(reading) : "offline";
   return {
     device,
-    label: deviceLabel(device),
+    label: threshold?.label || deviceLabel(device),
     status: status === "online" && threshold && isOutOfRange(reading, threshold) ? "danger" : status,
     reading: reading || null,
     threshold: threshold || null,

@@ -111,6 +111,18 @@ class ApiClient {
     return _handleResponse(response);
   }
 
+  static Future<dynamic> delete(
+    String path, {
+    bool auth = true,
+  }) async {
+    final uri = Uri.parse('$baseUrl$path');
+    final response = await http.delete(
+      uri,
+      headers: await _headers(auth: auth),
+    );
+    return _handleResponse(response);
+  }
+
   // ── Response handler ───────────────────────────────────────────
 
   static dynamic _handleResponse(http.Response response) {
