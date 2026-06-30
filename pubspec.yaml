@@ -10,7 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
-  fl_chart: ^1.0.0
+  syncfusion_flutter_charts: ^28.1.36
   google_fonts: ^6.2.1
   intl: ^0.20.0
   http: ^1.2.0

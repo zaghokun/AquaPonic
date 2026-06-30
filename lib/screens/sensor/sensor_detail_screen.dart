@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:fl_chart/fl_chart.dart';
+import 'package:syncfusion_flutter_charts/charts.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
@@ -320,73 +320,109 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
   }
 
   Widget _buildLineChart(String dataKey, Color lineColor, Color fillColor, String selectedPeriod, List<Map<String, dynamic>> seriesData) {
-    final spots = <FlSpot>[];
+    // Bangun data points
+    final chartData = <_ChartPoint>[];
     for (int i = 0; i < seriesData.length; i++) {
       final val = (seriesData[i][dataKey] as num?)?.toDouble();
       if (val != null) {
-        spots.add(FlSpot(i.toDouble(), val));
+        DateTime? dt;
+        final t = seriesData[i]['t'];
+        if (t is String && t.isNotEmpty) {
+          try {
+            dt = DateTime.parse(t).toLocal();
+          } catch (_) {}
+        }
+        chartData.add(_ChartPoint(dt ?? DateTime.now(), val));
       }
     }
 
-    if (spots.isEmpty) {
+    if (chartData.isEmpty) {
       return Center(child: Text('Belum ada data', style: GoogleFonts.poppins(color: AppColors.textSecondary)));
     }
 
-    final minY = spots.map((s) => s.y).reduce((a, b) => a < b ? a : b) - 2;
-    final maxY = spots.map((s) => s.y).reduce((a, b) => a > b ? a : b) + 2;
-    return LineChart(
-      LineChartData(
-        gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.shade200, strokeWidth: 1)),
-        titlesData: FlTitlesData(
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          bottomTitles: AxisTitles(sideTitles: SideTitles(
-            showTitles: true,
-            reservedSize: 30,
-            interval: (spots.length / 6).ceilToDouble().clamp(1, double.infinity),
-            getTitlesWidget: (v, meta) {
-              final idx = v.toInt();
-              if (idx < 0 || idx >= seriesData.length) return const SizedBox.shrink();
-              final t = seriesData[idx]['t'] ?? '';
-              String timePart = '$idx';
-              if (t is String && t.isNotEmpty) {
-                try {
-                  final dt = DateTime.parse(t).toLocal();
-                  if (selectedPeriod == 'Menit' || selectedPeriod == 'Jam') {
-                    timePart = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-                  } else {
-                    timePart = '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}';
-                  }
-                } catch (_) {}
-              }
-              return Padding(
-                padding: const EdgeInsets.only(top: 8.0),
-                child: Text(timePart, style: GoogleFonts.poppins(fontSize: 10, color: AppColors.textSecondary)),
-              );
-            },
-          )),
-          leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40, getTitlesWidget: (v, meta) => Text(v.toStringAsFixed(1), style: const TextStyle(fontSize: 10, color: Colors.grey)))),
-        ),
-        borderData: FlBorderData(show: false),
-        minX: 0,
-        maxX: spots.length.toDouble() - 1,
-        minY: minY,
-        maxY: maxY,
-        lineBarsData: [
-          LineChartBarData(
-            spots: spots,
-            isCurved: true,
-            color: lineColor,
-            barWidth: 3,
-            isStrokeCapRound: true,
-            dotData: const FlDotData(show: false),
-            belowBarData: BarAreaData(
-              show: true,
-              color: fillColor,
-            ),
-          ),
-        ],
+    // Format label berdasarkan period
+    final DateFormat dateFormat;
+    if (selectedPeriod == 'Menit' || selectedPeriod == 'Jam') {
+      dateFormat = DateFormat('HH:mm');
+    } else {
+      dateFormat = DateFormat('dd/MM');
+    }
+
+    return SfCartesianChart(
+      // ── Zoom & Pan ────────────────────────
+      zoomPanBehavior: ZoomPanBehavior(
+        enablePinching: true,        // Pinch in/out untuk zoom
+        enablePanning: true,         // Geser ke segala arah
+        enableDoubleTapZooming: true, // Double-tap untuk zoom in
+        zoomMode: ZoomMode.x,        // Zoom hanya di sumbu X (waktu)
+        enableMouseWheelZooming: true,
       ),
+      // ── Tooltip saat disentuh ──────────────
+      tooltipBehavior: TooltipBehavior(
+        enable: true,
+        header: '',
+        format: 'point.x : point.y',
+        textStyle: GoogleFonts.poppins(fontSize: 12, color: Colors.white),
+        color: Colors.black87,
+      ),
+      // ── Trackball untuk menampilkan detail ─
+      trackballBehavior: TrackballBehavior(
+        enable: true,
+        activationMode: ActivationMode.singleTap,
+        tooltipSettings: InteractiveTooltip(
+          format: 'point.y',
+          textStyle: GoogleFonts.poppins(fontSize: 12, color: Colors.white),
+          color: Colors.black87,
+          borderRadius: 8,
+        ),
+        lineType: TrackballLineType.vertical,
+        lineColor: lineColor.withValues(alpha: 0.5),
+        lineWidth: 1,
+        markerSettings: const TrackballMarkerSettings(
+          markerVisibility: TrackballVisibilityMode.visible,
+          height: 8,
+          width: 8,
+        ),
+      ),
+      // ── Axis X (Waktu) ─────────────────────
+      primaryXAxis: DateTimeAxis(
+        dateFormat: dateFormat,
+        intervalType: (selectedPeriod == 'Menit' || selectedPeriod == 'Jam')
+            ? DateTimeIntervalType.hours
+            : DateTimeIntervalType.days,
+        majorGridLines: const MajorGridLines(width: 0),
+        labelStyle: GoogleFonts.poppins(fontSize: 10, color: AppColors.textSecondary),
+        edgeLabelPlacement: EdgeLabelPlacement.shift,
+      ),
+      // ── Axis Y (Nilai) ─────────────────────
+      primaryYAxis: NumericAxis(
+        labelStyle: GoogleFonts.poppins(fontSize: 10, color: Colors.grey),
+        majorGridLines: MajorGridLines(color: Colors.grey.shade200, width: 1),
+        axisLine: const AxisLine(width: 0),
+      ),
+      // ── Border & Margin ────────────────────
+      plotAreaBorderWidth: 0,
+      margin: const EdgeInsets.only(top: 8, right: 8),
+      // ── Data Series ────────────────────────
+      series: <CartesianSeries<_ChartPoint, DateTime>>[
+        SplineAreaSeries<_ChartPoint, DateTime>(
+          dataSource: chartData,
+          xValueMapper: (_ChartPoint p, _) => p.time,
+          yValueMapper: (_ChartPoint p, _) => p.value,
+          color: fillColor,
+          borderColor: lineColor,
+          borderWidth: 3,
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              lineColor.withValues(alpha: 0.4),
+              lineColor.withValues(alpha: 0.05),
+            ],
+          ),
+          animationDuration: 800,
+        ),
+      ],
     );
   }
 
@@ -677,4 +713,11 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
       }
     }
   }
+}
+
+/// Data model untuk titik grafik Syncfusion.
+class _ChartPoint {
+  final DateTime time;
+  final double value;
+  const _ChartPoint(this.time, this.value);
 }
