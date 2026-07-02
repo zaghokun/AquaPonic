@@ -14,6 +14,7 @@ import 'package:aquaponic/screens/account/edit_profile_screen.dart';
 import 'package:aquaponic/screens/account/change_password_screen.dart';
 import 'package:aquaponic/screens/account/change_email_screen.dart';
 import 'package:aquaponic/screens/account/change_phone_screen.dart';
+import 'package:aquaponic/screens/splash_screen.dart';
 
 class AquaPonic extends StatelessWidget {
   const AquaPonic({super.key});
@@ -24,8 +25,9 @@ class AquaPonic extends StatelessWidget {
       title: 'AquaPonic',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
-      initialRoute: AppRoutes.login,
+      initialRoute: AppRoutes.splash,
       routes: {
+        AppRoutes.splash: (context) => const SplashScreen(),
         AppRoutes.login: (context) => const LoginScreen(),
         AppRoutes.register: (context) => const RegisterScreen(),
         AppRoutes.main: (context) => const MainNavigation(),

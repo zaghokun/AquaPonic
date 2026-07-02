@@ -124,6 +124,7 @@ class DeviceService {
     double? phMax,
     double? tempMin,
     double? tempMax,
+    bool? notificationsEnabled,
   }) async {
     final body = <String, dynamic>{};
     if (label != null) body['label'] = label;
@@ -131,6 +132,7 @@ class DeviceService {
     if (phMax != null) body['ph_max'] = phMax;
     if (tempMin != null) body['temp_min'] = tempMin;
     if (tempMax != null) body['temp_max'] = tempMax;
+    if (notificationsEnabled != null) body['notifications_enabled'] = notificationsEnabled;
 
     final data = await ApiClient.put('/devices/$deviceId', body: body);
     return Map<String, dynamic>.from(data);

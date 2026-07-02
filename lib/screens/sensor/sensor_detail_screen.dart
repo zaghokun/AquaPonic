@@ -456,17 +456,20 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
     final tempMaxCtrl = TextEditingController(text: '32.0');
     final phMinCtrl = TextEditingController(text: '6.5');
     final phMaxCtrl = TextEditingController(text: '8.5');
+    bool notifEnabled = true;
 
-    // Load threshold aktual dari API
-    DeviceService.getThresholds().then((thresholds) {
-      for (final t in thresholds) {
-        if (t['device'] == k.id) {
-          if (mounted) {
+    // Load threshold aktual dari API (sudah ter-filter per user oleh backend)
+    DeviceService.getDevices().then((devices) {
+      for (final d in devices) {
+        if (d['device'] == k.id) {
+          final t = d['threshold'] as Map<String, dynamic>?;
+          if (t != null && mounted) {
             tempMinCtrl.text = (t['temp_min'] ?? 25.0).toString();
             tempMaxCtrl.text = (t['temp_max'] ?? 32.0).toString();
             phMinCtrl.text = (t['ph_min'] ?? 6.5).toString();
             phMaxCtrl.text = (t['ph_max'] ?? 8.5).toString();
             if (t['label'] != null) nameController.text = t['label'];
+            notifEnabled = t['notifications_enabled'] ?? true;
           }
           break;
         }
@@ -477,7 +480,8 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => Container(
         padding: EdgeInsets.only(
           bottom: MediaQuery.of(ctx).viewInsets.bottom,
         ),
@@ -501,6 +505,44 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
               Text('Pengaturan Sensor', style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
               const SizedBox(height: 8),
               Text('Perangkat: ${k.id}', style: GoogleFonts.poppins(fontSize: 13, color: AppColors.textSecondary)),
+              const SizedBox(height: 20),
+
+              // Toggle Notifikasi
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: notifEnabled ? Colors.green.shade50 : Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: notifEnabled ? Colors.green.shade200 : Colors.grey.shade300),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      notifEnabled ? Icons.notifications_active : Icons.notifications_off,
+                      color: notifEnabled ? Colors.green : Colors.grey,
+                      size: 22,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Kirim Notifikasi', style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+                          Text(
+                            notifEnabled ? 'Anda akan menerima peringatan' : 'Peringatan dimatikan',
+                            style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Switch(
+                      value: notifEnabled,
+                      activeColor: Colors.green,
+                      onChanged: (v) => setSheetState(() => notifEnabled = v),
+                    ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 20),
 
               // Nama sensor
@@ -567,6 +609,7 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
                     double.tryParse(tempMaxCtrl.text) ?? 32.0,
                     double.tryParse(phMinCtrl.text) ?? 6.5,
                     double.tryParse(phMaxCtrl.text) ?? 8.5,
+                    notifEnabled,
                   ),
                   icon: const Icon(Icons.save, color: AppColors.white),
                   label: Text('Simpan Perubahan', style: GoogleFonts.poppins(color: AppColors.white, fontWeight: FontWeight.bold)),
@@ -597,11 +640,12 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
             ],
           ),
         ),
+        ),
       ),
     );
   }
 
-  Future<void> _saveSettings(BuildContext ctx, String label, double tempMin, double tempMax, double phMin, double phMax) async {
+  Future<void> _saveSettings(BuildContext ctx, String label, double tempMin, double tempMax, double phMin, double phMax, bool notifEnabled) async {
     Navigator.pop(ctx);
     try {
       await DeviceService.updateDevice(
@@ -611,6 +655,7 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
         tempMax: tempMax,
         phMin: phMin,
         phMax: phMax,
+        notificationsEnabled: notifEnabled,
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

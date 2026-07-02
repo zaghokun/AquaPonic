@@ -90,8 +90,8 @@ export default {
       }
 
       if (request.method === "GET" && url.pathname === "/api/devices") {
-        await requireAuth(request, env);
-        return getDevices(env);
+        const auth = await requireAuth(request, env);
+        return getDevices(env, auth);
       }
 
       const deviceLive = matchPath(url.pathname, /^\/api\/devices\/([^/]+)\/live$/);
@@ -843,61 +843,69 @@ async function postSensor(request, env) {
     return json({ error: "Supabase insert failed", detail }, 502);
   }
 
-  // --- CEK THRESHOLD UNTUK NOTIFIKASI ---
+  // --- CEK THRESHOLD PER-USER UNTUK NOTIFIKASI ---
   try {
     const deviceName = rows[0]?.device;
     if (deviceName) {
-      const threshRes = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?device=eq.${encodeURIComponent(deviceName)}`, { headers: readHeaders(env) });
-      const threshData = await threshRes.json();
-      if (threshData && threshData.length > 0) {
-        const t = threshData[0];
+      // Ambil SEMUA user yang memantau device ini (multi-tenancy)
+      const threshRes = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?device=eq.${encodeURIComponent(deviceName)}&select=*`, { headers: readHeaders(env) });
+      const allThresholds = await threshRes.json();
+      if (allThresholds && allThresholds.length > 0) {
         const latest = rows[rows.length - 1]; // Bacaan terakhir di batch ini
-        let msg = "";
-        let sev = "";
 
-        if (latest.temperature != null) {
-          if (latest.temperature < t.temp_min) { msg = `Suhu terlalu rendah (${latest.temperature}°C).`; sev = "warning"; }
-          else if (latest.temperature > t.temp_max) { msg = `Suhu terlalu tinggi (${latest.temperature}°C).`; sev = "danger"; }
-        }
+        for (const t of allThresholds) {
+          // Skip jika user ini mematikan notifikasi
+          if (t.notifications_enabled === false) continue;
 
-        if (latest.ph != null) {
-          if (latest.ph < t.ph_min) { msg += ` pH terlalu asam (${latest.ph}).`; sev = "danger"; }
-          else if (latest.ph > t.ph_max) { msg += ` pH terlalu basa (${latest.ph}).`; sev = "danger"; }
-        }
+          let msg = "";
+          let sev = "";
 
-        if (msg !== "") {
-          // Cek apakah sudah ada alert dalam 5 menit terakhir agar tidak spam
-          const logRes = await fetch(`${env.SUPABASE_URL}/rest/v1/activity_logs?action=eq.sensor.alert&target_id=eq.${encodeURIComponent(deviceName)}&order=created_at.desc&limit=1`, { headers: readHeaders(env) });
-          const logData = await logRes.json();
-          let shouldAlert = true;
-
-          if (logData && logData.length > 0) {
-            const lastAlertTime = new Date(logData[0].created_at).getTime();
-            if (Date.now() - lastAlertTime < 5 * 60 * 1000) {
-              shouldAlert = false;
-            }
+          if (latest.temperature != null) {
+            if (latest.temperature < t.temp_min) { msg = `Suhu terlalu rendah (${latest.temperature}°C).`; sev = "warning"; }
+            else if (latest.temperature > t.temp_max) { msg = `Suhu terlalu tinggi (${latest.temperature}°C).`; sev = "danger"; }
           }
 
-          if (shouldAlert) {
-            await logActivity(env, {
-              request,
-              actor_type: "system",
-              action: "sensor.alert",
-              target_type: "device",
-              target_id: deviceName,
-              source: "worker",
-              severity: sev,
-              metadata: { detail: msg.trim() },
-            });
+          if (latest.ph != null) {
+            if (latest.ph < t.ph_min) { msg += ` pH terlalu asam (${latest.ph}).`; sev = "danger"; }
+            else if (latest.ph > t.ph_max) { msg += ` pH terlalu basa (${latest.ph}).`; sev = "danger"; }
+          }
 
-            // Kirim push notification via FCM
-            const labelName = t.label || deviceLabel(deviceName);
-            await sendFcmNotification(
-              env,
-              `⚠️ Peringatan Sensor - ${labelName}`,
-              msg.trim(),
-              { device: deviceName, severity: sev }
-            );
+          if (msg !== "" && t.user_id) {
+            // Cek anti-spam: 5 menit terakhir per user per device
+            const logRes = await fetch(`${env.SUPABASE_URL}/rest/v1/activity_logs?action=eq.sensor.alert&target_id=eq.${encodeURIComponent(deviceName)}&actor_id=eq.${encodeURIComponent(t.user_id)}&order=created_at.desc&limit=1`, { headers: readHeaders(env) });
+            const logData = await logRes.json();
+            let shouldAlert = true;
+
+            if (logData && logData.length > 0) {
+              const lastAlertTime = new Date(logData[0].created_at).getTime();
+              if (Date.now() - lastAlertTime < 5 * 60 * 1000) {
+                shouldAlert = false;
+              }
+            }
+
+            if (shouldAlert) {
+              await logActivity(env, {
+                request,
+                actor_type: "system",
+                actor_id: t.user_id,
+                action: "sensor.alert",
+                target_type: "device",
+                target_id: deviceName,
+                source: "worker",
+                severity: sev,
+                metadata: { detail: msg.trim(), user_id: t.user_id },
+              });
+
+              // Kirim push notification HANYA ke user ini
+              const labelName = t.label || deviceLabel(deviceName);
+              await sendFcmToUser(
+                env,
+                t.user_id,
+                `⚠️ Peringatan Sensor - ${labelName}`,
+                msg.trim(),
+                { device: deviceName, severity: sev }
+              );
+            }
           }
         }
       }
@@ -909,15 +917,24 @@ async function postSensor(request, env) {
   return json({ success: true, inserted: rows.length }, 201);
 }
 
-// ─── GET /api/devices (dinamis dari tabel thresholds) ────────────────
-async function getDevices(env) {
-  // Ambil daftar device dari tabel thresholds (tidak hardcode)
-  const threshRes = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?select=*&order=device.asc`, { headers: readHeaders(env) });
-  const thresholdRows = await checkedJson(threshRes, "Gagal membaca threshold");
-  const devices = thresholdRows.map(r => r.device);
-  const thresholds = Object.fromEntries(thresholdRows.map((r) => [r.device, r]));
+// ─── GET /api/devices (Global list, per-user settings) ───────────────
+async function getDevices(env, auth) {
+  const userId = auth.user?.id;
+  
+  // 1. Ambil daftar semua device unik secara global
+  const allThreshRes = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?select=device`, { headers: readHeaders(env) });
+  const allThreshRows = await checkedJson(allThreshRes, "Gagal membaca daftar device global");
+  const devices = [...new Set(allThreshRows.map(r => r.device))];
 
   if (!devices.length) return json([]);
+
+  // 2. Ambil settingan threshold khusus user ini
+  let userThresholds = {};
+  if (userId) {
+    const userThreshRes = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?select=*&user_id=eq.${encodeURIComponent(userId)}`, { headers: readHeaders(env) });
+    const userThreshRows = await checkedJson(userThreshRes, "Gagal membaca threshold user");
+    userThresholds = Object.fromEntries(userThreshRows.map(r => [r.device, r]));
+  }
 
   // Ambil data terbaru setiap device secara paralel
   const readingFetches = devices.map(device =>
@@ -934,7 +951,18 @@ async function getDevices(env) {
     }
   }
 
-  return json(devices.map((device) => deviceSummary(device, latest[device], thresholds[device])));
+  return json(devices.map((device) => {
+    const thresh = userThresholds[device] || {
+      device: device,
+      label: deviceLabel(device),
+      ph_min: 6.5,
+      ph_max: 8.5,
+      temp_min: 25.0,
+      temp_max: 32.0,
+      notifications_enabled: true,
+    };
+    return deviceSummary(device, latest[device], thresh);
+  }));
 }
 
 // ─── POST /api/devices (tambah kolam/sensor baru) ────────────────────
@@ -948,19 +976,24 @@ async function addDevice(request, env, auth) {
   const device = String(body.device || "").trim().toLowerCase();
   if (!device || !/^esp-\d+$/.test(device)) return json({ error: "Format device tidak valid. Gunakan format: esp-01, esp-05, dll." }, 400);
 
-  // Cek apakah device sudah terdaftar
-  const checkRes = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?device=eq.${encodeURIComponent(device)}&select=device`, { headers: readHeaders(env) });
+  const userId = auth.user?.id;
+  if (!userId) return json({ error: "User ID tidak ditemukan" }, 400);
+
+  // Cek apakah user ini sudah mendaftarkan device yang sama
+  const checkRes = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?device=eq.${encodeURIComponent(device)}&user_id=eq.${encodeURIComponent(userId)}&select=device`, { headers: readHeaders(env) });
   const existing = await checkedJson(checkRes, "Gagal memeriksa device");
-  if (existing.length > 0) return json({ error: `Device '${device}' sudah terdaftar` }, 409);
+  if (existing.length > 0) return json({ error: `Device '${device}' sudah terdaftar di akun Anda` }, 409);
 
   const label = body.label || deviceLabel(device);
   const defaultThreshold = {
+    user_id: userId,
     device,
     label,
     ph_min: body.ph_min ?? 6.5,
     ph_max: body.ph_max ?? 8.5,
     temp_min: body.temp_min ?? 25.0,
     temp_max: body.temp_max ?? 32.0,
+    notifications_enabled: true,
   };
 
   const res = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds`, {
@@ -982,13 +1015,13 @@ async function addDevice(request, env, auth) {
     target_id: device,
     source: "mobile_app",
     severity: "info",
-    metadata: { device, label },
+    metadata: { device, label, user_id: userId },
   });
 
   return json(created[0] || defaultThreshold, 201);
 }
 
-// ─── PUT /api/devices/:id (update label & threshold) ─────────────────
+// ─── PUT /api/devices/:id (update label & threshold via UPSERT) ────────
 async function updateDevice(request, env, device, auth) {
   requireEnv(env, ["SUPABASE_URL", "SUPABASE_SERVICE_KEY"]);
 
@@ -996,67 +1029,78 @@ async function updateDevice(request, env, device, auth) {
   try { body = await request.json(); }
   catch { return json({ error: "Invalid JSON" }, 400); }
 
-  // Cek device terdaftar
-  const checkRes = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?device=eq.${encodeURIComponent(device)}&select=device`, { headers: readHeaders(env) });
-  const existing = await checkedJson(checkRes, "Gagal memeriksa device");
-  if (!existing.length) return json({ error: `Device '${device}' tidak ditemukan` }, 404);
+  const userId = auth.user?.id;
+  if (!userId) return json({ error: "User ID tidak ditemukan" }, 400);
 
-  // Bangun payload update
-  const update = {};
-  if (body.label !== undefined) update.label = String(body.label).trim();
-  if (body.ph_min !== undefined) update.ph_min = body.ph_min;
-  if (body.ph_max !== undefined) update.ph_max = body.ph_max;
-  if (body.temp_min !== undefined) update.temp_min = body.temp_min;
-  if (body.temp_max !== undefined) update.temp_max = body.temp_max;
+  // Ambil data eksisting (jika ada) untuk fallback
+  const checkRes = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?device=eq.${encodeURIComponent(device)}&user_id=eq.${encodeURIComponent(userId)}&select=*`, { headers: readHeaders(env) });
+  const existingRows = await checkedJson(checkRes, "Gagal memeriksa device");
+  
+  const existingData = existingRows.length > 0 ? existingRows[0] : {
+    user_id: userId,
+    device: device,
+    label: deviceLabel(device),
+    ph_min: 6.5,
+    ph_max: 8.5,
+    temp_min: 25.0,
+    temp_max: 32.0,
+    notifications_enabled: true,
+  };
 
-  if (!Object.keys(update).length) return json({ error: "Tidak ada field yang diubah" }, 400);
+  // Bangun payload UPSERT
+  const payload = { ...existingData };
+  if (body.label !== undefined) payload.label = String(body.label).trim();
+  if (body.ph_min !== undefined) payload.ph_min = body.ph_min;
+  if (body.ph_max !== undefined) payload.ph_max = body.ph_max;
+  if (body.temp_min !== undefined) payload.temp_min = body.temp_min;
+  if (body.temp_max !== undefined) payload.temp_max = body.temp_max;
+  if (body.notifications_enabled !== undefined) payload.notifications_enabled = !!body.notifications_enabled;
 
-  // Validasi threshold jika ada
-  if (update.ph_min !== undefined || update.ph_max !== undefined || update.temp_min !== undefined || update.temp_max !== undefined) {
-    // Merge dengan data lama untuk validasi lengkap
-    const mergeRes = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?device=eq.${encodeURIComponent(device)}&select=*`, { headers: readHeaders(env) });
-    const mergeData = await checkedJson(mergeRes, "Gagal membaca threshold");
-    const merged = { ...mergeData[0], ...update };
-    const err = validateThreshold(merged);
-    if (err) return json({ error: err }, 400);
-  }
+  // Validasi threshold
+  const err = validateThreshold(payload);
+  if (err) return json({ error: err }, 400);
 
-  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?device=eq.${encodeURIComponent(device)}`, {
-    method: "PATCH",
+  // Lakukan UPSERT (Insert or Update)
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds`, {
+    method: "POST",
     headers: {
       ...readHeaders(env),
       "Content-Type": "application/json",
-      Prefer: "return=representation",
+      Prefer: "return=representation, resolution=merge-duplicates",
     },
-    body: JSON.stringify(update),
+    body: JSON.stringify(payload),
   });
 
-  const updated = await checkedJson(res, "Gagal memperbarui device");
+  const updated = await checkedJson(res, "Gagal menyimpan pengaturan device");
+  
   await logActivity(env, {
     request,
     actor: auth,
-    action: "user.device_update",
+    action: existingRows.length > 0 ? "user.device_update" : "user.device_add_upsert",
     target_type: "device",
     target_id: device,
     source: "mobile_app",
     severity: "info",
-    metadata: { device, changes: update },
+    metadata: { device, payload, user_id: userId },
   });
 
-  return json(updated[0] || update);
+  return json(updated[0] || payload);
 }
 
 // ─── DELETE /api/devices/:id (hapus dari daftar aktif) ───────────────
 async function deleteDevice(request, env, device, auth) {
   requireEnv(env, ["SUPABASE_URL", "SUPABASE_SERVICE_KEY"]);
 
-  // Cek device terdaftar
-  const checkRes = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?device=eq.${encodeURIComponent(device)}&select=device`, { headers: readHeaders(env) });
-  const existing = await checkedJson(checkRes, "Gagal memeriksa device");
-  if (!existing.length) return json({ error: `Device '${device}' tidak ditemukan` }, 404);
+  const userId = auth.user?.id;
+  if (!userId) return json({ error: "User ID tidak ditemukan" }, 400);
 
-  // Hapus dari tabel thresholds (data readings tetap utuh)
-  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?device=eq.${encodeURIComponent(device)}`, {
+  // Cek device terdaftar UNTUK USER INI
+  const checkRes = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?device=eq.${encodeURIComponent(device)}&user_id=eq.${encodeURIComponent(userId)}&select=device`, { headers: readHeaders(env) });
+  const existing = await checkedJson(checkRes, "Gagal memeriksa device");
+  if (!existing.length) return json({ error: `Device '${device}' tidak ditemukan di akun Anda` }, 404);
+
+  // Hapus dari tabel thresholds HANYA MILIK USER INI (data readings tetap utuh)
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/thresholds?device=eq.${encodeURIComponent(device)}&user_id=eq.${encodeURIComponent(userId)}`, {
     method: "DELETE",
     headers: readHeaders(env),
   });
@@ -1074,10 +1118,10 @@ async function deleteDevice(request, env, device, auth) {
     target_id: device,
     source: "mobile_app",
     severity: "warning",
-    metadata: { device },
+    metadata: { device, user_id: userId },
   });
 
-  return json({ success: true, message: `Device '${device}' berhasil dihapus dari daftar aktif` });
+  return json({ success: true, message: `Device '${device}' berhasil dihapus dari daftar Anda` });
 }
 
 async function getDeviceLive(env, device) {
@@ -1600,6 +1644,70 @@ async function sendFcmNotification(env, title, body, data = {}) {
   } catch (err) {
     console.error("FCM Error:", err.message, err.stack);
     // Abaikan semua error FCM agar tidak mengganggu alur utama
+  }
+}
+
+// ─── Kirim Push Notification ke USER SPESIFIK via FCM ────────────────
+async function sendFcmToUser(env, userId, title, body, data = {}) {
+  if (!env.FIREBASE_SERVICE_ACCOUNT) {
+    console.error("FCM Error: FIREBASE_SERVICE_ACCOUNT is missing in env");
+    return;
+  }
+
+  try {
+    // Ambil token FCM HANYA milik user ini
+    const tokensRes = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/fcm_tokens?select=token&user_id=eq.${encodeURIComponent(userId)}`,
+      { headers: adminAuthHeaders(env) }
+    );
+    if (!tokensRes.ok) {
+      console.error("FCM Error: Failed to fetch user tokens", await tokensRes.text());
+      return;
+    }
+    const tokens = await tokensRes.json();
+    if (!tokens.length) {
+      console.log(`FCM Warning: No tokens found for user ${userId}`);
+      return;
+    }
+
+    const tokenList = tokens.map(t => t.token);
+    const authInfo = await getGoogleAuthToken(env.FIREBASE_SERVICE_ACCOUNT);
+    const fcmUrl = `https://fcm.googleapis.com/v1/projects/${authInfo.projectId}/messages:send`;
+
+    const sends = tokenList.map(token =>
+      fetch(fcmUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authInfo.token}`,
+        },
+        body: JSON.stringify({
+          message: {
+            token: token,
+            data: {
+              ...data,
+              click_action: "FLUTTER_NOTIFICATION_CLICK",
+              title: title,
+              body: body
+            },
+            android: {
+              priority: "high"
+            }
+          }
+        }),
+      })
+      .then(async res => {
+        const txt = await res.text();
+        console.log(`FCM [user=${userId}][${res.status}]: ${txt}`);
+      })
+      .catch(err => {
+        console.error("FCM Fetch Error:", err);
+      })
+    );
+
+    await Promise.all(sends);
+  } catch (err) {
+    console.error("FCM User Error:", err.message, err.stack);
   }
 }
 
