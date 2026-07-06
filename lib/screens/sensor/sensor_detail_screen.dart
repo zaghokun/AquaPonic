@@ -22,21 +22,26 @@ class SensorDetailScreen extends StatefulWidget {
 class _SensorDetailScreenState extends State<SensorDetailScreen> {
   String _selectedSuhuPeriod = 'Jam';
   String _selectedPHPeriod = 'Jam';
+  String _selectedTdsPeriod = 'Jam';
   final List<String> _periods = ['Menit', 'Jam', 'Hari', 'Minggu', 'Bulan'];
 
-  // Data grafik terpisah untuk Suhu dan pH
+  // Data grafik terpisah untuk Suhu, pH, dan TDS
   List<Map<String, dynamic>> _suhuSeriesData = [];
   List<Map<String, dynamic>> _phSeriesData = [];
+  List<Map<String, dynamic>> _tdsSeriesData = [];
   bool _isSuhuLoading = true;
   bool _isPhLoading = true;
+  bool _isTdsLoading = true;
   String? _suhuError;
   String? _phError;
+  String? _tdsError;
 
   @override
   void initState() {
     super.initState();
     _loadSuhuSeries('hour');
     _loadPhSeries('hour');
+    _loadTdsSeries('hour');
   }
 
   String _periodToBucket(String period) {
@@ -93,6 +98,22 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
     }
   }
 
+  Future<void> _loadTdsSeries(String bucket) async {
+    setState(() { _isTdsLoading = true; _tdsError = null; });
+    try {
+      final from = _periodToFrom(bucket);
+      final data = await DeviceService.getDeviceSeries(
+        widget.kolam.id,
+        bucket: bucket,
+        from: from,
+        to: DateTime.now().toUtc().toIso8601String(),
+      );
+      setState(() { _tdsSeriesData = data; _isTdsLoading = false; });
+    } catch (e) {
+      setState(() { _tdsError = 'Gagal memuat data grafik'; _isTdsLoading = false; });
+    }
+  }
+
   Future<void> _exportCsv() async {
     final exportData = _suhuSeriesData.isNotEmpty ? _suhuSeriesData : _phSeriesData;
     if (exportData.isEmpty) {
@@ -102,12 +123,13 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
       return;
     }
     try {
-      final header = "Waktu,Suhu (C),pH\n";
+      final header = "Waktu,Suhu (C),pH,TDS (ppm)\n";
       final rows = exportData.map((d) {
         final t = d['t'] ?? '';
         final temp = d['temp_avg'] ?? '';
         final ph = d['ph_avg'] ?? '';
-        return "$t,$temp,$ph";
+        final tds = d['wq_avg'] ?? '';
+        return "$t,$temp,$ph,$tds";
       }).join("\n");
       final csvData = header + rows;
 
@@ -219,6 +241,25 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
               },
               lineColor: Colors.blue,
               fillColor: Colors.blue.withValues(alpha: 0.3),
+            ),
+            const SizedBox(height: 24),
+            _buildChartCard(
+              title: 'TDS',
+              value: '${k.sensorData.tds.toStringAsFixed(0)} ppm',
+              icon: Icons.water_drop,
+              iconColor: Colors.teal,
+              status: k.sensorData.tdsStatus,
+              dataKey: 'wq_avg',
+              seriesData: _tdsSeriesData,
+              isLoading: _isTdsLoading,
+              error: _tdsError,
+              selectedPeriod: _selectedTdsPeriod,
+              onPeriodChanged: (p) {
+                setState(() => _selectedTdsPeriod = p);
+                _loadTdsSeries(_periodToBucket(p));
+              },
+              lineColor: Colors.teal,
+              fillColor: Colors.teal.withValues(alpha: 0.3),
             ),
           ],
         ),
@@ -456,6 +497,8 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
     final tempMaxCtrl = TextEditingController(text: '32.0');
     final phMinCtrl = TextEditingController(text: '6.5');
     final phMaxCtrl = TextEditingController(text: '8.5');
+    final tdsMinCtrl = TextEditingController(text: '0');
+    final tdsMaxCtrl = TextEditingController(text: '1000');
     bool notifEnabled = true;
 
     // Load threshold aktual dari API (sudah ter-filter per user oleh backend)
@@ -468,6 +511,8 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
             tempMaxCtrl.text = (t['temp_max'] ?? 32.0).toString();
             phMinCtrl.text = (t['ph_min'] ?? 6.5).toString();
             phMaxCtrl.text = (t['ph_max'] ?? 8.5).toString();
+            tdsMinCtrl.text = (t['water_quality_min'] ?? 0).toString();
+            tdsMaxCtrl.text = (t['water_quality_max'] ?? 1000).toString();
             if (t['label'] != null) nameController.text = t['label'];
             notifEnabled = t['notifications_enabled'] ?? true;
           }
@@ -596,6 +641,26 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
                   )),
                 ],
               ),
+              const SizedBox(height: 20),
+
+              // Batas TDS (ppm)
+              Text('Batas TDS (ppm)', style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(child: TextField(
+                    controller: tdsMinCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(labelText: 'Min', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+                  )),
+                  const SizedBox(width: 12),
+                  Expanded(child: TextField(
+                    controller: tdsMaxCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(labelText: 'Max', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+                  )),
+                ],
+              ),
               const SizedBox(height: 24),
 
               // Tombol Simpan
@@ -609,6 +674,8 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
                     double.tryParse(tempMaxCtrl.text) ?? 32.0,
                     double.tryParse(phMinCtrl.text) ?? 6.5,
                     double.tryParse(phMaxCtrl.text) ?? 8.5,
+                    double.tryParse(tdsMinCtrl.text) ?? 0,
+                    double.tryParse(tdsMaxCtrl.text) ?? 1000,
                     notifEnabled,
                   ),
                   icon: const Icon(Icons.save, color: AppColors.white),
@@ -645,16 +712,18 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
     );
   }
 
-  Future<void> _saveSettings(BuildContext ctx, String label, double tempMin, double tempMax, double phMin, double phMax, bool notifEnabled) async {
+  Future<void> _saveSettings(BuildContext ctx, String label, double tempMin, double tempMax, double phMin, double phMax, double tdsMin, double tdsMax, bool notifEnabled) async {
     Navigator.pop(ctx);
     try {
-      await DeviceService.updateDevice(
+      await DeviceService.updateUserThreshold(
         widget.kolam.id,
         label: label,
         tempMin: tempMin,
         tempMax: tempMax,
         phMin: phMin,
         phMax: phMax,
+        waterQualityMin: tdsMin,
+        waterQualityMax: tdsMax,
         notificationsEnabled: notifEnabled,
       );
       if (mounted) {

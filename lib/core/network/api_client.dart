@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// and JSON parsing.
 class ApiClient {
   static const String baseUrl =
-      'https://sensor-monitor.aquaponic.workers.dev/api';
+      'https://sensor-monitor.stevenbong1603.workers.dev/api';
 
   static const String _tokenKey = 'access_token';
   static const String _refreshTokenKey = 'refresh_token';
@@ -43,9 +43,7 @@ class ApiClient {
 
   /// Build headers with optional Bearer token.
   static Future<Map<String, String>> _headers({bool auth = true}) async {
-    final headers = <String, String>{
-      'Content-Type': 'application/json',
-    };
+    final headers = <String, String>{'Content-Type': 'application/json'};
     if (auth) {
       final token = await getAccessToken();
       if (token != null) {
@@ -61,7 +59,9 @@ class ApiClient {
     bool auth = true,
     Map<String, String>? queryParams,
   }) async {
-    final uri = Uri.parse('$baseUrl$path').replace(queryParameters: queryParams);
+    final uri = Uri.parse(
+      '$baseUrl$path',
+    ).replace(queryParameters: queryParams);
     final response = await http.get(uri, headers: await _headers(auth: auth));
     return _handleResponse(response);
   }
@@ -111,10 +111,7 @@ class ApiClient {
     return _handleResponse(response);
   }
 
-  static Future<dynamic> delete(
-    String path, {
-    bool auth = true,
-  }) async {
+  static Future<dynamic> delete(String path, {bool auth = true}) async {
     final uri = Uri.parse('$baseUrl$path');
     final response = await http.delete(
       uri,

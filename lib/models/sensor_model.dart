@@ -23,35 +23,47 @@ class SensorReading {
 class SensorData {
   final double suhu;
   final double pH;
+  final double tds;
   final SensorStatus suhuStatus;
   final SensorStatus pHStatus;
+  final SensorStatus tdsStatus;
   final List<SensorReading> suhuHistory;
   final List<SensorReading> pHHistory;
+  final List<SensorReading> tdsHistory;
 
   const SensorData({
     required this.suhu,
     required this.pH,
+    this.tds = 0.0,
     required this.suhuStatus,
     required this.pHStatus,
+    this.tdsStatus = SensorStatus.baik,
     required this.suhuHistory,
     required this.pHHistory,
+    this.tdsHistory = const [],
   });
 
   SensorData copyWith({
     double? suhu,
     double? pH,
+    double? tds,
     SensorStatus? suhuStatus,
     SensorStatus? pHStatus,
+    SensorStatus? tdsStatus,
     List<SensorReading>? suhuHistory,
     List<SensorReading>? pHHistory,
+    List<SensorReading>? tdsHistory,
   }) {
     return SensorData(
       suhu: suhu ?? this.suhu,
       pH: pH ?? this.pH,
+      tds: tds ?? this.tds,
       suhuStatus: suhuStatus ?? this.suhuStatus,
       pHStatus: pHStatus ?? this.pHStatus,
+      tdsStatus: tdsStatus ?? this.tdsStatus,
       suhuHistory: suhuHistory ?? this.suhuHistory,
       pHHistory: pHHistory ?? this.pHHistory,
+      tdsHistory: tdsHistory ?? this.tdsHistory,
     );
   }
 }

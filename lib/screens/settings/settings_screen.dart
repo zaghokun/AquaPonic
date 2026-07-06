@@ -78,7 +78,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final pMin = double.tryParse(_phMinCtrl.text);
       final pMax = double.tryParse(_phMaxCtrl.text);
 
-      await DeviceService.updateThreshold(
+      await DeviceService.updateUserThreshold(
         _selectedDevice!,
         tempMin: tMin,
         tempMax: tMax,

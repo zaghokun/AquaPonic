@@ -41,10 +41,19 @@ class DeviceService {
     );
   }
 
-  /// Get thresholds for all devices.
-  /// Endpoint: GET /api/thresholds
-  static Future<List<Map<String, dynamic>>> getThresholds() async {
-    final data = await ApiClient.get('/thresholds');
+  /// Get user-specific thresholds.
+  /// Endpoint: GET /api/user-thresholds
+  static Future<List<Map<String, dynamic>>> getUserThresholds() async {
+    final data = await ApiClient.get('/user-thresholds');
+    return List<Map<String, dynamic>>.from(
+      (data as List).map((e) => Map<String, dynamic>.from(e)),
+    );
+  }
+
+  /// Get default (global admin) thresholds.
+  /// Endpoint: GET /api/default-thresholds
+  static Future<List<Map<String, dynamic>>> getDefaultThresholds() async {
+    final data = await ApiClient.get('/default-thresholds');
     return List<Map<String, dynamic>>.from(
       (data as List).map((e) => Map<String, dynamic>.from(e)),
     );
@@ -59,6 +68,8 @@ class DeviceService {
     double phMax = 8.5,
     double tempMin = 25.0,
     double tempMax = 32.0,
+    double waterQualityMin = 0,
+    double waterQualityMax = 1000,
   }) async {
     final data = await ApiClient.post('/devices', body: {
       'device': deviceId,
@@ -67,26 +78,36 @@ class DeviceService {
       'ph_max': phMax,
       'temp_min': tempMin,
       'temp_max': tempMax,
+      'water_quality_min': waterQualityMin,
+      'water_quality_max': waterQualityMax,
     });
     return Map<String, dynamic>.from(data);
   }
 
-  /// Update threshold for a device.
-  /// Endpoint: PUT /api/thresholds/:device
-  static Future<Map<String, dynamic>> updateThreshold(
+  /// Update user-specific threshold for a device (UPSERT).
+  /// Endpoint: PUT /api/user-thresholds/:device
+  static Future<Map<String, dynamic>> updateUserThreshold(
     String deviceId, {
+    String? label,
     double? phMin,
     double? phMax,
     double? tempMin,
     double? tempMax,
+    double? waterQualityMin,
+    double? waterQualityMax,
+    bool? notificationsEnabled,
   }) async {
     final body = <String, dynamic>{};
+    if (label != null) body['label'] = label;
     if (phMin != null) body['ph_min'] = phMin;
     if (phMax != null) body['ph_max'] = phMax;
     if (tempMin != null) body['temp_min'] = tempMin;
     if (tempMax != null) body['temp_max'] = tempMax;
+    if (waterQualityMin != null) body['water_quality_min'] = waterQualityMin;
+    if (waterQualityMax != null) body['water_quality_max'] = waterQualityMax;
+    if (notificationsEnabled != null) body['notifications_enabled'] = notificationsEnabled;
 
-    final data = await ApiClient.put('/thresholds/$deviceId', body: body);
+    final data = await ApiClient.put('/user-thresholds/$deviceId', body: body);
     return Map<String, dynamic>.from(data);
   }
 
@@ -111,31 +132,8 @@ class DeviceService {
     required String from,
     required String to,
   }) {
-    const base = 'https://sensor-monitor.aquaponic.workers.dev/api';
+    const base = ApiClient.baseUrl;
     return '$base/devices/export?device=${Uri.encodeComponent(deviceId)}&from=${Uri.encodeComponent(from)}&to=${Uri.encodeComponent(to)}';
-  }
-
-  /// Update device label and thresholds.
-  /// Endpoint: PUT /api/devices/:id
-  static Future<Map<String, dynamic>> updateDevice(
-    String deviceId, {
-    String? label,
-    double? phMin,
-    double? phMax,
-    double? tempMin,
-    double? tempMax,
-    bool? notificationsEnabled,
-  }) async {
-    final body = <String, dynamic>{};
-    if (label != null) body['label'] = label;
-    if (phMin != null) body['ph_min'] = phMin;
-    if (phMax != null) body['ph_max'] = phMax;
-    if (tempMin != null) body['temp_min'] = tempMin;
-    if (tempMax != null) body['temp_max'] = tempMax;
-    if (notificationsEnabled != null) body['notifications_enabled'] = notificationsEnabled;
-
-    final data = await ApiClient.put('/devices/$deviceId', body: body);
-    return Map<String, dynamic>.from(data);
   }
 
   /// Delete a device from the active sensor list.
@@ -144,4 +142,3 @@ class DeviceService {
     await ApiClient.delete('/devices/$deviceId');
   }
 }
-

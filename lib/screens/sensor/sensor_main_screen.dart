@@ -82,12 +82,15 @@ class _SensorMainScreenState extends State<SensorMainScreen> {
 
     final double suhu = (reading?['temperature'] as num?)?.toDouble() ?? 0.0;
     final double ph = (reading?['ph'] as num?)?.toDouble() ?? 0.0;
+    final double tds = (reading?['water_quality'] as num?)?.toDouble() ?? 0.0;
 
     // Determine status based on threshold
     final double phMin = (threshold?['ph_min'] as num?)?.toDouble() ?? 0;
     final double phMax = (threshold?['ph_max'] as num?)?.toDouble() ?? 14;
     final double tempMin = (threshold?['temp_min'] as num?)?.toDouble() ?? 0;
     final double tempMax = (threshold?['temp_max'] as num?)?.toDouble() ?? 50;
+    final double tdsMin = (threshold?['water_quality_min'] as num?)?.toDouble() ?? 0;
+    final double tdsMax = (threshold?['water_quality_max'] as num?)?.toDouble() ?? 1000;
 
     SensorStatus suhuStatus = SensorStatus.baik;
     if (suhu < tempMin || suhu > tempMax) {
@@ -103,6 +106,13 @@ class _SensorMainScreenState extends State<SensorMainScreen> {
       phStatus = SensorStatus.peringatan;
     }
 
+    SensorStatus tdsStatus = SensorStatus.baik;
+    if (tds < tdsMin || tds > tdsMax) {
+      tdsStatus = SensorStatus.bahaya;
+    } else if ((tds - tdsMin) < 50 || (tdsMax - tds) < 50) {
+      tdsStatus = SensorStatus.peringatan;
+    }
+
     // Determine overall status from API "status" field
     final String apiStatus = (device['status'] as String?) ?? 'offline';
     SensorStatus overallStatus;
@@ -111,9 +121,9 @@ class _SensorMainScreenState extends State<SensorMainScreen> {
     } else if (apiStatus == 'offline') {
       overallStatus = SensorStatus.peringatan;
     } else {
-      overallStatus = (suhuStatus == SensorStatus.bahaya || phStatus == SensorStatus.bahaya)
+      overallStatus = (suhuStatus == SensorStatus.bahaya || phStatus == SensorStatus.bahaya || tdsStatus == SensorStatus.bahaya)
           ? SensorStatus.bahaya
-          : (suhuStatus == SensorStatus.peringatan || phStatus == SensorStatus.peringatan)
+          : (suhuStatus == SensorStatus.peringatan || phStatus == SensorStatus.peringatan || tdsStatus == SensorStatus.peringatan)
               ? SensorStatus.peringatan
               : SensorStatus.baik;
     }
@@ -128,10 +138,13 @@ class _SensorMainScreenState extends State<SensorMainScreen> {
       sensorData: SensorData(
         suhu: suhu,
         pH: ph,
+        tds: tds,
         suhuStatus: suhuStatus,
         pHStatus: phStatus,
+        tdsStatus: tdsStatus,
         suhuHistory: [],
         pHHistory: [],
+        tdsHistory: [],
       ),
       overallStatus: overallStatus,
     );

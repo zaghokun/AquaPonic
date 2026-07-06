@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:aquaponic/core/constants/app_colors.dart';
 
-enum BarType { suhu, pH }
+enum BarType { suhu, pH, tds }
 
 class ColoredBarIndicator extends StatelessWidget {
   final double value;
@@ -31,6 +31,11 @@ class ColoredBarIndicator extends StatelessWidget {
           Color(0xFFF44336), Color(0xFFFF9800), Color(0xFFFFEB3B), Color(0xFF4CAF50),
           Color(0xFF4CAF50), Color(0xFF29B6F6), Color(0xFF7C4DFF),
         ];
+      case BarType.tds:
+        return const [
+          Color(0xFFF44336), Color(0xFFFF9800), Color(0xFF4CAF50),
+          Color(0xFF4CAF50), Color(0xFFFF9800), Color(0xFFF44336),
+        ];
     }
   }
 
@@ -40,6 +45,8 @@ class ColoredBarIndicator extends StatelessWidget {
         return const [0.0, 0.12, 0.22, 0.35, 0.65, 0.78, 0.88, 1.0];
       case BarType.pH:
         return const [0.0, 0.15, 0.30, 0.42, 0.58, 0.78, 1.0];
+      case BarType.tds:
+        return const [0.0, 0.15, 0.35, 0.65, 0.85, 1.0];
     }
   }
 

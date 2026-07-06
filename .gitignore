@@ -60,4 +60,5 @@ AquaPonic UI
 google-services.json
 aquaponic-d7be4-firebase-adminsdk-fbsvc-f54a1db467.json
 
-./esp32/cloudflare/tail_logs.jsonl
+services_device/
+*.apk

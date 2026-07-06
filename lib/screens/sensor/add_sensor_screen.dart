@@ -94,55 +94,57 @@ class _AddSensorScreenState extends State<AddSensorScreen> {
             child: Container(
               color: AppColors.white,
               padding: const EdgeInsets.all(24),
-              child: Column(
-                children: [
-                  AppTextField(
-                    controller: _labelCtrl,
-                    label: 'Nama Kolam (Opsional)',
-                    hint: 'Kolam Baru',
-                  ),
-                  const SizedBox(height: 16),
-                  AppTextField(
-                    controller: _deviceCtrl,
-                    label: 'Kode Kontroller (Format: esp-XX)',
-                    hint: 'esp-05',
-                  ),
-                  if (_error != null) ...[
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    AppTextField(
+                      controller: _labelCtrl,
+                      label: 'Nama Kolam (Opsional)',
+                      hint: 'Kolam Baru',
+                    ),
                     const SizedBox(height: 16),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: AppColors.statusDanger.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.error_outline, color: AppColors.statusDanger, size: 18),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _error!,
-                              style: GoogleFonts.poppins(color: AppColors.statusDanger, fontSize: 13),
+                    AppTextField(
+                      controller: _deviceCtrl,
+                      label: 'Kode Kontroller (Format: esp-XX)',
+                      hint: 'esp-05',
+                    ),
+                    if (_error != null) ...[
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.statusDanger.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error_outline, color: AppColors.statusDanger, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _error!,
+                                style: GoogleFonts.poppins(color: AppColors.statusDanger, fontSize: 13),
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 32),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: SizedBox(
+                        width: 150,
+                        child: _loading
+                            ? const Center(child: CircularProgressIndicator())
+                            : AppButton(
+                                text: 'Konfirmasi',
+                                onPressed: _addSensor,
+                              ),
                       ),
                     ),
                   ],
-                  const SizedBox(height: 32),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: SizedBox(
-                      width: 150,
-                      child: _loading
-                          ? const Center(child: CircularProgressIndicator())
-                          : AppButton(
-                              text: 'Konfirmasi',
-                              onPressed: _addSensor,
-                            ),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
