@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:aquaponic/core/constants/app_colors.dart';
 import 'package:aquaponic/models/sensor_model.dart';
 import 'package:aquaponic/widgets/gradient_background.dart';
@@ -428,9 +429,11 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
       // ── Axis X (Waktu) ─────────────────────
       primaryXAxis: DateTimeAxis(
         dateFormat: dateFormat,
-        intervalType: (selectedPeriod == 'Menit' || selectedPeriod == 'Jam')
-            ? DateTimeIntervalType.hours
-            : DateTimeIntervalType.days,
+        intervalType: selectedPeriod == 'Menit'
+            ? DateTimeIntervalType.minutes
+            : selectedPeriod == 'Jam'
+                ? DateTimeIntervalType.hours
+                : DateTimeIntervalType.days,
         majorGridLines: const MajorGridLines(width: 0),
         labelStyle: GoogleFonts.poppins(fontSize: 10, color: AppColors.textSecondary),
         edgeLabelPlacement: EdgeLabelPlacement.shift,
@@ -501,6 +504,15 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
     final tdsMaxCtrl = TextEditingController(text: '1000');
     bool notifEnabled = true;
 
+    // Load local settings first
+    SharedPreferences.getInstance().then((prefs) {
+      if (mounted) {
+        final localLabel = prefs.getString('label_${k.id}');
+        if (localLabel != null) nameController.text = localLabel;
+        notifEnabled = prefs.getBool('notifications_enabled_${k.id}') ?? true;
+      }
+    });
+
     // Load threshold aktual dari API (sudah ter-filter per user oleh backend)
     DeviceService.getDevices().then((devices) {
       for (final d in devices) {
@@ -513,8 +525,9 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
             phMaxCtrl.text = (t['ph_max'] ?? 8.5).toString();
             tdsMinCtrl.text = (t['water_quality_min'] ?? 0).toString();
             tdsMaxCtrl.text = (t['water_quality_max'] ?? 1000).toString();
-            if (t['label'] != null) nameController.text = t['label'];
-            notifEnabled = t['notifications_enabled'] ?? true;
+            // Optional: fallback to API if local is missing, but API doesn't return these anymore
+            if (t['label'] != null && nameController.text == k.name) nameController.text = t['label'];
+            if (t['notifications_enabled'] != null) notifEnabled = t['notifications_enabled'];
           }
           break;
         }
@@ -582,7 +595,7 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
                     ),
                     Switch(
                       value: notifEnabled,
-                      activeColor: Colors.green,
+                      activeThumbColor: Colors.green,
                       onChanged: (v) => setSheetState(() => notifEnabled = v),
                     ),
                   ],
@@ -715,6 +728,10 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
   Future<void> _saveSettings(BuildContext ctx, String label, double tempMin, double tempMax, double phMin, double phMax, double tdsMin, double tdsMax, bool notifEnabled) async {
     Navigator.pop(ctx);
     try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('label_${widget.kolam.id}', label);
+      await prefs.setBool('notifications_enabled_${widget.kolam.id}', notifEnabled);
+
       await DeviceService.updateUserThreshold(
         widget.kolam.id,
         label: label,

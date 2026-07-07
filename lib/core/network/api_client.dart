@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// and JSON parsing.
 class ApiClient {
   static const String baseUrl =
-      'https://sensor-monitor.stevenbong1603.workers.dev/api';
+      'https://sensor-monitor.aquaponic.workers.dev/api';
 
   static const String _tokenKey = 'access_token';
   static const String _refreshTokenKey = 'refresh_token';

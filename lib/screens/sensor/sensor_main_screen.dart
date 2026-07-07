@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:aquaponic/core/constants/app_colors.dart';
 import 'package:aquaponic/core/constants/app_text_styles.dart';
 import 'package:aquaponic/routes/app_routes.dart';
@@ -71,12 +72,14 @@ class _SensorMainScreenState extends State<SensorMainScreen> {
   }
 
   Future<List<Kolam>> _fetchDevices() async {
-    final devices = await DeviceService.getDevices();
-    return devices.map((d) => _mapDeviceToKolam(d)).toList();
+    final devicesData = await DeviceService.getDevices();
+    final prefs = await SharedPreferences.getInstance();
+    
+    return devicesData.map((d) => _mapDeviceToKolam(d, prefs)).toList();
   }
 
   /// Maps API response to the existing Kolam model.
-  Kolam _mapDeviceToKolam(Map<String, dynamic> device) {
+  Kolam _mapDeviceToKolam(Map<String, dynamic> device, SharedPreferences prefs) {
     final reading = device['reading'] as Map<String, dynamic>?;
     final threshold = device['threshold'] as Map<String, dynamic>?;
 
@@ -129,7 +132,8 @@ class _SensorMainScreenState extends State<SensorMainScreen> {
     }
 
     final String deviceId = device['device'] ?? 'unknown';
-    final String label = device['label'] ?? deviceId;
+    // Use local preference for label if available
+    final String label = prefs.getString('label_$deviceId') ?? (device['label'] ?? deviceId);
 
     return Kolam(
       id: deviceId,

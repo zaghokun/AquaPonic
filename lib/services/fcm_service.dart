@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:aquaponic/core/network/api_client.dart';
 
 /// Handler untuk notifikasi yang diterima saat aplikasi di-background/terminated.
@@ -9,11 +10,20 @@ import 'package:aquaponic/core/network/api_client.dart';
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   debugPrint("Handling a background message: ${message.messageId}");
 
-  // Secara manual munculkan notifikasi saat aplikasi mati
   final title = message.notification?.title ?? message.data['title'];
   final body = message.notification?.body ?? message.data['body'];
+  final deviceId = message.data['device'];
 
   if (title != null || body != null) {
+    if (deviceId != null) {
+      final prefs = await SharedPreferences.getInstance();
+      final isEnabled = prefs.getBool('notifications_enabled_$deviceId') ?? true;
+      if (!isEnabled) {
+        debugPrint("Notification for $deviceId is disabled locally. Skipping.");
+        return;
+      }
+    }
+
     final FlutterLocalNotificationsPlugin localNotifications = FlutterLocalNotificationsPlugin();
     const AndroidInitializationSettings androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
     const InitializationSettings initSettings = InitializationSettings(android: androidInit);
@@ -94,11 +104,21 @@ class FcmService {
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
     // Dengarkan pesan saat aplikasi di-foreground
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
       final title = message.notification?.title ?? message.data['title'];
       final body = message.notification?.body ?? message.data['body'];
+      final deviceId = message.data['device'];
 
       if ((title != null || body != null) && !kIsWeb) {
+        if (deviceId != null) {
+          final prefs = await SharedPreferences.getInstance();
+          final isEnabled = prefs.getBool('notifications_enabled_$deviceId') ?? true;
+          if (!isEnabled) {
+            debugPrint("Foreground notification for $deviceId is disabled locally. Skipping.");
+            return;
+          }
+        }
+
         _localNotifications.show(
           id: message.hashCode,
           title: title,
