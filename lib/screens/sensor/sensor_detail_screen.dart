@@ -129,7 +129,7 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
         final t = d['t'] ?? '';
         final temp = d['temp_avg'] ?? '';
         final ph = d['ph_avg'] ?? '';
-        final tds = d['wq_avg'] ?? '';
+        final tds = d['water_quality_avg'] ?? '';
         return "$t,$temp,$ph,$tds";
       }).join("\n");
       final csvData = header + rows;
@@ -250,7 +250,7 @@ class _SensorDetailScreenState extends State<SensorDetailScreen> {
               icon: Icons.water_drop,
               iconColor: Colors.teal,
               status: k.sensorData.tdsStatus,
-              dataKey: 'wq_avg',
+              dataKey: 'water_quality_avg',
               seriesData: _tdsSeriesData,
               isLoading: _isTdsLoading,
               error: _tdsError,
