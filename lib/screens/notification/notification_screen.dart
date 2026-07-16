@@ -18,16 +18,12 @@ class _NotificationScreenState extends State<NotificationScreen> {
   @override
   void initState() {
     super.initState();
-    _future = DeviceService.getNotifications(limit: 50).then((list) => 
-      list.where((n) => n['action'] != 'auth.login_failed').toList()
-    );
+    _future = DeviceService.getNotifications(limit: 50);
   }
 
   void _refresh() {
     setState(() {
-      _future = DeviceService.getNotifications(limit: 50).then((list) => 
-        list.where((n) => n['action'] != 'auth.login_failed').toList()
-      );
+      _future = DeviceService.getNotifications(limit: 50);
     });
   }
 

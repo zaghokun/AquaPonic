@@ -55,12 +55,20 @@ class HourlyForecast {
   final double temperature;
   final String condition;
   final String icon;
+  final double feelsLike;
+  final double windSpeed;
+  final int humidity;
+  final int rainProbability;
 
   const HourlyForecast({
     required this.time,
     required this.temperature,
     required this.condition,
     required this.icon,
+    this.feelsLike = 0,
+    this.windSpeed = 0,
+    this.humidity = 0,
+    this.rainProbability = 0,
   });
 
   HourlyForecast copyWith({
@@ -68,12 +76,20 @@ class HourlyForecast {
     double? temperature,
     String? condition,
     String? icon,
+    double? feelsLike,
+    double? windSpeed,
+    int? humidity,
+    int? rainProbability,
   }) {
     return HourlyForecast(
       time: time ?? this.time,
       temperature: temperature ?? this.temperature,
       condition: condition ?? this.condition,
       icon: icon ?? this.icon,
+      feelsLike: feelsLike ?? this.feelsLike,
+      windSpeed: windSpeed ?? this.windSpeed,
+      humidity: humidity ?? this.humidity,
+      rainProbability: rainProbability ?? this.rainProbability,
     );
   }
 }

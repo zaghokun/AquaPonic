@@ -20,28 +20,46 @@ class _WeatherMainScreenState extends State<WeatherMainScreen> {
   bool _isLoading = true;
   String? _error;
 
-  // Current weather
+  // Current weather (base values from API)
+  String _baseCondition = '';
+  double _baseTemperature = 0;
+  double _baseFeelsLike = 0;
+  double _baseWindSpeed = 0;
+  int _baseHumidity = 0;
+  final int _baseRainProbability = 0;
+  String _location = 'Gunungpati';
+
+  // Display values (can be overridden by hourly selection)
   String _condition = '';
   double _temperature = 0;
   double _feelsLike = 0;
   double _windSpeed = 0;
   int _humidity = 0;
   int _rainProbability = 0;
-  String _location = 'Gunungpati';
 
   // User info
   String _userName = 'Pengguna';
 
   // Hourly
   List<HourlyForecast> _hourlyForecast = [];
+  int _selectedHourIndex = 0;
 
   // Daily
   List<DailyForecast> _dailyForecast = [];
+
+  // ScrollController for hourly list
+  final ScrollController _hourlyScrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _hourlyScrollController.dispose();
+    super.dispose();
   }
 
   String _weatherCodeToCondition(int code) {
@@ -65,7 +83,15 @@ class _WeatherMainScreenState extends State<WeatherMainScreen> {
       // Load user info
       final me = await AuthService.me();
       if (me != null) {
-        _userName = me['email'] ?? 'Pengguna';
+        final user = me['user'] as Map<String, dynamic>? ?? {};
+        final meta = user['user_metadata'] as Map<String, dynamic>? ?? {};
+        final fullName = meta['full_name'] as String? ?? '';
+        if (fullName.isNotEmpty) {
+          // Use first name only for greeting
+          _userName = fullName.split(' ').first;
+        } else {
+          _userName = 'Pengguna';
+        }
       }
 
       // Load current weather
@@ -76,12 +102,12 @@ class _WeatherMainScreenState extends State<WeatherMainScreen> {
         _location = place['name'] ?? 'Gunungpati';
       }
       if (cur != null) {
-        _temperature = (cur['temperature_2m'] as num?)?.toDouble() ?? 0;
-        _feelsLike = (cur['apparent_temperature'] as num?)?.toDouble() ?? 0;
-        _windSpeed = (cur['wind_speed_10m'] as num?)?.toDouble() ?? 0;
-        _humidity = (cur['relative_humidity_2m'] as num?)?.toInt() ?? 0;
+        _baseTemperature = (cur['temperature_2m'] as num?)?.toDouble() ?? 0;
+        _baseFeelsLike = (cur['apparent_temperature'] as num?)?.toDouble() ?? 0;
+        _baseWindSpeed = (cur['wind_speed_10m'] as num?)?.toDouble() ?? 0;
+        _baseHumidity = (cur['relative_humidity_2m'] as num?)?.toInt() ?? 0;
         final weatherCode = (cur['weather_code'] as num?)?.toInt() ?? 0;
-        _condition = _weatherCodeToCondition(weatherCode);
+        _baseCondition = _weatherCodeToCondition(weatherCode);
       }
 
       // Load hourly forecast
@@ -93,9 +119,6 @@ class _WeatherMainScreenState extends State<WeatherMainScreen> {
         final timeStr = h['time']?.toString() ?? '';
         final dt = DateTime.tryParse(timeStr);
         if (dt == null) return false;
-        // Open-Meteo mengembalikan waktu dalam timezone lokal (Asia/Jakarta),
-        // tapi DateTime.parse menganggapnya sebagai UTC.
-        // Kita paksa treat sebagai waktu lokal untuk perbandingan yang akurat.
         final localDt = DateTime(dt.year, dt.month, dt.day, dt.hour, dt.minute);
         return localDt.isAfter(now.subtract(const Duration(hours: 1)));
       }).take(12).map((h) {
@@ -103,7 +126,6 @@ class _WeatherMainScreenState extends State<WeatherMainScreen> {
         String displayTime;
         try {
           final dt = DateTime.parse(time);
-          // Format langsung tanpa konversi toLocal() karena sudah local time
           displayTime = DateFormat('HH:mm').format(dt);
         } catch (_) {
           displayTime = time.toString().length >= 16 ? time.toString().substring(11, 16) : time.toString();
@@ -114,12 +136,25 @@ class _WeatherMainScreenState extends State<WeatherMainScreen> {
           temperature: (h['temperature_2m'] as num?)?.toDouble() ?? 0,
           condition: _weatherCodeToCondition(wc),
           icon: wc <= 3 ? 'sunny' : 'cloud',
+          feelsLike: (h['apparent_temperature'] as num?)?.toDouble() ?? 0,
+          windSpeed: (h['wind_speed_10m'] as num?)?.toDouble() ?? 0,
+          humidity: (h['relative_humidity_2m'] as num?)?.toInt() ?? 0,
+          rainProbability: (h['precipitation_probability'] as num?)?.toInt() ?? 0,
         );
       }).toList();
 
-      // Get first hourly item's precipitation probability for current card
-      if (hourlyList.isNotEmpty) {
-        _rainProbability = (hourlyList.first['precipitation_probability'] as num?)?.toInt() ?? 0;
+      // Default: select index 0 (current hour) and set display values from it
+      _selectedHourIndex = 0;
+      if (_hourlyForecast.isNotEmpty) {
+        _applyHourlySelection(0);
+      } else {
+        // Fallback to base values
+        _condition = _baseCondition;
+        _temperature = _baseTemperature;
+        _feelsLike = _baseFeelsLike;
+        _windSpeed = _baseWindSpeed;
+        _humidity = _baseHumidity;
+        _rainProbability = _baseRainProbability;
       }
 
       // Load daily forecast
@@ -142,16 +177,16 @@ class _WeatherMainScreenState extends State<WeatherMainScreen> {
             condition: cond,
             temperature: highTemp,
             feelsLike: highTemp + 2,
-            windSpeed: _windSpeed,
-            humidity: _humidity,
+            windSpeed: _baseWindSpeed,
+            humidity: _baseHumidity,
             rainProbability: rainMax,
           ),
           nightDetail: WeatherDetail(
             condition: cond,
             temperature: lowTemp,
             feelsLike: lowTemp + 1,
-            windSpeed: _windSpeed - 1,
-            humidity: _humidity + 5,
+            windSpeed: _baseWindSpeed - 1,
+            humidity: _baseHumidity + 5,
             rainProbability: rainMax,
           ),
         );
@@ -161,6 +196,23 @@ class _WeatherMainScreenState extends State<WeatherMainScreen> {
     } catch (e) {
       setState(() { _error = 'Gagal memuat data cuaca'; _isLoading = false; });
     }
+  }
+
+  void _applyHourlySelection(int index) {
+    final h = _hourlyForecast[index];
+    _condition = h.condition;
+    _temperature = h.temperature;
+    _feelsLike = h.feelsLike;
+    _windSpeed = h.windSpeed;
+    _humidity = h.humidity;
+    _rainProbability = h.rainProbability;
+  }
+
+  void _onHourlyTap(int index) {
+    setState(() {
+      _selectedHourIndex = index;
+      _applyHourlySelection(index);
+    });
   }
 
   @override
@@ -245,6 +297,10 @@ class _WeatherMainScreenState extends State<WeatherMainScreen> {
                     _buildChip(Icons.location_on, _location),
                     const SizedBox(width: 12),
                     _buildChip(null, DateFormat('EEEE, d MMMM y', 'id_ID').format(DateTime.now())),
+                    if (_selectedHourIndex > 0 && _hourlyForecast.isNotEmpty) ...[
+                      const SizedBox(width: 12),
+                      _buildChip(Icons.access_time, 'Prakiraan ${_hourlyForecast[_selectedHourIndex].time}'),
+                    ],
                   ],
                 ),
               ),
@@ -268,13 +324,15 @@ class _WeatherMainScreenState extends State<WeatherMainScreen> {
               ),
               const SizedBox(height: 16),
               SizedBox(
-                height: 110,
+                height: 120,
                 child: ListView.builder(
+                  controller: _hourlyScrollController,
                   scrollDirection: Axis.horizontal,
                   itemCount: _hourlyForecast.length,
                   itemBuilder: (context, index) {
                     final hourly = _hourlyForecast[index];
-                    return _buildHourlyCard(hourly);
+                    final isSelected = index == _selectedHourIndex;
+                    return _buildHourlyCard(hourly, isSelected, index);
                   },
                 ),
               ),
@@ -330,40 +388,68 @@ class _WeatherMainScreenState extends State<WeatherMainScreen> {
     );
   }
 
-  Widget _buildHourlyCard(HourlyForecast hourly) {
+  Widget _buildHourlyCard(HourlyForecast hourly, bool isSelected, int index) {
     IconData iconData = Icons.cloud;
     if (hourly.condition.toLowerCase().contains('cerah')) iconData = Icons.wb_sunny;
     
-    return Container(
-      width: 75,
-      margin: const EdgeInsets.only(right: 12),
-      decoration: BoxDecoration(
-        color: AppColors.primaryBlue.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.white.withValues(alpha: 0.2)),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            hourly.time,
-            style: GoogleFonts.poppins(
-              color: AppColors.white,
-              fontSize: 12,
-            ),
+    return GestureDetector(
+      onTap: () => _onHourlyTap(index),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: 80,
+        margin: const EdgeInsets.only(right: 12),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppColors.white.withValues(alpha: 0.9)
+              : AppColors.primaryBlue.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected
+                ? AppColors.white
+                : AppColors.white.withValues(alpha: 0.2),
+            width: isSelected ? 2 : 1,
           ),
-          const SizedBox(height: 8),
-          Icon(iconData, color: AppColors.white, size: 28),
-          const SizedBox(height: 8),
-          Text(
-            '${hourly.temperature.toInt()}°',
-            style: GoogleFonts.poppins(
-              color: AppColors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
+          boxShadow: isSelected
+              ? [BoxShadow(color: AppColors.white.withValues(alpha: 0.3), blurRadius: 12, spreadRadius: 1)]
+              : [],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (index == 0)
+              Text(
+                'Saat ini',
+                style: GoogleFonts.poppins(
+                  color: isSelected ? AppColors.primaryBlue : AppColors.white.withValues(alpha: 0.7),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            Text(
+              hourly.time,
+              style: GoogleFonts.poppins(
+                color: isSelected ? AppColors.primaryBlue : AppColors.white,
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 6),
+            Icon(
+              iconData,
+              color: isSelected ? AppColors.primaryBlue : AppColors.white,
+              size: 28,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '${hourly.temperature.toInt()}°',
+              style: GoogleFonts.poppins(
+                color: isSelected ? AppColors.primaryBlue : AppColors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

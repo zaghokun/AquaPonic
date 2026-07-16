@@ -89,67 +89,76 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         children: [
           const SectionHeader(title: 'Edit Profil'),
           Expanded(
-            child: Container(
-              color: AppColors.white,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  children: [
-                    Stack(
-                      children: [
-                        Container(
-                          width: 100,
-                          height: 100,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.pink.shade100,
-                            border: Border.all(color: AppColors.primaryBlue, width: 2),
-                          ),
-                          child: Icon(Icons.person, size: 60, color: Colors.pink.shade400),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                children: [
+                  Stack(
+                    children: [
+                      Container(
+                        width: 100,
+                        height: 100,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: AppColors.white.withValues(alpha: 0.2),
+                          border: Border.all(color: AppColors.white.withValues(alpha: 0.5), width: 2),
                         ),
-                        Positioned(
-                          right: 0,
-                          bottom: 0,
-                          child: Container(
-                            padding: const EdgeInsets.all(6),
-                            decoration: const BoxDecoration(
-                              color: AppColors.primaryBlue,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(Icons.camera_alt, color: AppColors.white, size: 16),
+                        child: Icon(Icons.person, size: 60, color: AppColors.white.withValues(alpha: 0.8)),
+                      ),
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: AppColors.white.withValues(alpha: 0.3),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: AppColors.white.withValues(alpha: 0.5)),
                           ),
+                          child: const Icon(Icons.camera_alt, color: AppColors.white, size: 16),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 32),
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: AppColors.white,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
+                      children: [
+                        AppTextField(
+                          label: 'Nama Lengkap',
+                          controller: _fullNameCtrl,
+                        ),
+                        AppTextField(
+                          label: 'Nomor Telepon',
+                          controller: _phoneCtrl,
+                          prefix: Text('+62 ', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 32),
-                    AppTextField(
-                      label: 'Nama Lengkap',
-                      controller: _fullNameCtrl,
-                    ),
-                    AppTextField(
-                      label: 'Nomor Telepon',
-                      controller: _phoneCtrl,
-                      prefix: Text('+62 ', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-                    ),
-                    if (_error != null) ...[
-                      const SizedBox(height: 16),
-                      Text(_error!, style: GoogleFonts.poppins(color: AppColors.statusDanger, fontSize: 13)),
-                    ],
-                    const SizedBox(height: 32),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: SizedBox(
-                        width: 150,
-                        child: _loading
-                            ? const Center(child: CircularProgressIndicator())
-                            : AppButton(
-                                text: 'Simpan',
-                                onPressed: _save,
-                              ),
-                      ),
-                    ),
+                  ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 16),
+                    Text(_error!, style: GoogleFonts.poppins(color: AppColors.statusDanger, fontSize: 13)),
                   ],
-                ),
+                  const SizedBox(height: 32),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: SizedBox(
+                      width: 150,
+                      child: _loading
+                          ? const Center(child: CircularProgressIndicator(color: AppColors.white))
+                          : AppButton(
+                              text: 'Simpan',
+                              onPressed: _save,
+                            ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

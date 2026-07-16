@@ -15,10 +15,7 @@ class ProfileHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.only(top: 60, bottom: 40, left: 24, right: 24),
-      decoration: const BoxDecoration(
-        gradient: AppColors.primaryGradient,
-      ),
+      padding: const EdgeInsets.only(top: 20, bottom: 40, left: 24, right: 24),
       child: Column(
         children: [
           Container(
@@ -26,13 +23,13 @@ class ProfileHeader extends StatelessWidget {
             height: 100,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.pink.shade100,
-              border: Border.all(color: AppColors.white, width: 3),
+              color: AppColors.white.withValues(alpha: 0.2),
+              border: Border.all(color: AppColors.white.withValues(alpha: 0.5), width: 3),
             ),
             child: Icon(
               Icons.person,
               size: 60,
-              color: Colors.pink.shade400,
+              color: AppColors.white.withValues(alpha: 0.8),
             ),
           ),
           const SizedBox(height: 16),

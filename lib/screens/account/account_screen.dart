@@ -71,77 +71,74 @@ class _AccountScreenState extends State<AccountScreen> {
                     ? ProfileHeader(user: _user!)
                     : const SizedBox(height: 120),
             Expanded(
-              child: Container(
-                color: AppColors.cardBackground,
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Pengaturan Akun',
-                        style: GoogleFonts.poppins(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.textSecondary,
-                        ),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Pengaturan Akun',
+                      style: GoogleFonts.poppins(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.white.withValues(alpha: 0.8),
                       ),
-                      const SizedBox(height: 32),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: AppColors.white,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Column(
-                          children: [
-                            SettingTile(
-                              title: 'Edit Profil',
-                              icon: Icons.person_outline,
-                              onTap: () async {
-                                final res = await Navigator.pushNamed(context, AppRoutes.editProfile);
-                                if (res == true) {
-                                  _loadUser(); // refresh data
-                                }
-                              },
-                            ),
-                            SettingTile(
-                              title: 'Ganti Kata Sandi',
-                              icon: Icons.lock_outline,
-                              onTap: () => Navigator.pushNamed(context, AppRoutes.changePassword),
-                            ),
-                            SettingTile(
-                              title: 'Ganti Email',
-                              icon: Icons.email_outlined,
-                              onTap: () => Navigator.pushNamed(context, AppRoutes.changeEmail),
-                            ),
-                            SettingTile(
-                              title: 'Ganti Nomor Telepon',
-                              icon: Icons.phone_outlined,
-                              onTap: () => Navigator.pushNamed(context, AppRoutes.changePhone),
-                              hideDivider: true,
-                            ),
-                          ],
-                        ),
+                    ),
+                    const SizedBox(height: 32),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: AppColors.white,
+                        borderRadius: BorderRadius.circular(16),
                       ),
-                      const SizedBox(height: 32),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: AppColors.white,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: SettingTile(
-                          title: 'Keluar',
-                          icon: Icons.logout,
-                          iconColor: AppColors.statusDanger,
-                          textColor: AppColors.statusDanger,
-                          onTap: () {
-                            _showLogoutDialog(context);
-                          },
-                          hideDivider: true,
-                        ),
+                      child: Column(
+                        children: [
+                          SettingTile(
+                            title: 'Edit Profil',
+                            icon: Icons.person_outline,
+                            onTap: () async {
+                              final res = await Navigator.pushNamed(context, AppRoutes.editProfile);
+                              if (res == true) {
+                                _loadUser(); // refresh data
+                              }
+                            },
+                          ),
+                          SettingTile(
+                            title: 'Ganti Kata Sandi',
+                            icon: Icons.lock_outline,
+                            onTap: () => Navigator.pushNamed(context, AppRoutes.changePassword),
+                          ),
+                          SettingTile(
+                            title: 'Ganti Email',
+                            icon: Icons.email_outlined,
+                            onTap: () => Navigator.pushNamed(context, AppRoutes.changeEmail),
+                          ),
+                          SettingTile(
+                            title: 'Ganti Nomor Telepon',
+                            icon: Icons.phone_outlined,
+                            onTap: () => Navigator.pushNamed(context, AppRoutes.changePhone),
+                            hideDivider: true,
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 32),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: AppColors.white,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: SettingTile(
+                        title: 'Keluar',
+                        icon: Icons.logout,
+                        iconColor: AppColors.statusDanger,
+                        textColor: AppColors.statusDanger,
+                        onTap: () {
+                          _showLogoutDialog(context);
+                        },
+                        hideDivider: true,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),

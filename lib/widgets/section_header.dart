@@ -12,12 +12,8 @@ class SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
+    return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-      decoration: const BoxDecoration(
-        gradient: AppColors.primaryGradient,
-      ),
       child: Text(
         title,
         style: GoogleFonts.poppins(

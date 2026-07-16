@@ -55,7 +55,11 @@ class _ChangePhoneScreenState extends State<ChangePhoneScreen> {
           const SectionHeader(title: 'Ganti Nomor Telepon'),
           Expanded(
             child: Container(
-              color: AppColors.white,
+              margin: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: AppColors.white,
+                borderRadius: BorderRadius.circular(16),
+              ),
               child: PageView(
                 controller: _pageController,
                 physics: const NeverScrollableScrollPhysics(),

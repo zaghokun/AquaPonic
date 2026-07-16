@@ -118,28 +118,38 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
         children: [
           const SectionHeader(title: 'Ganti Kata Sandi'),
           Expanded(
-            child: Container(
-              color: AppColors.white,
+            child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
               child: Column(
                 children: [
-                  AppTextField(
-                    label: 'Kata Sandi Baru',
-                    controller: _newPasswordCtrl,
-                    obscureText: true,
-                  ),
-                  const SizedBox(height: 8),
-                  AppTextField(
-                    label: 'Konfirmasi Kata Sandi Baru',
-                    controller: _confirmPasswordCtrl,
-                    obscureText: true,
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: AppColors.white,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
+                      children: [
+                        AppTextField(
+                          label: 'Kata Sandi Baru',
+                          controller: _newPasswordCtrl,
+                          obscureText: true,
+                        ),
+                        const SizedBox(height: 8),
+                        AppTextField(
+                          label: 'Konfirmasi Kata Sandi Baru',
+                          controller: _confirmPasswordCtrl,
+                          obscureText: true,
+                        ),
+                      ],
+                    ),
                   ),
                   if (_error != null) ...[
                     const SizedBox(height: 16),
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: AppColors.statusDanger.withValues(alpha: 0.1),
+                        color: AppColors.white,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Row(
@@ -163,7 +173,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                       SizedBox(
                         width: 150,
                         child: _loading
-                            ? const Center(child: CircularProgressIndicator())
+                            ? const Center(child: CircularProgressIndicator(color: AppColors.white))
                             : AppButton(
                                 text: 'Simpan',
                                 onPressed: _submit,
